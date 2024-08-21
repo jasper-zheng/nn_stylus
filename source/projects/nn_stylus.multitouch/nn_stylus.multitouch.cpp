@@ -25,6 +25,11 @@ private:
     vector<vector<event>> m_pages;
     vector<vector<symbol>> m_pages_phases;
 
+    vector<float> canvas_line;
+    vector<vector<float>> canvas;
+
+    boolean show_canvas = false;
+
     number osc_1 {};
 
     number m_anchor_x {};
@@ -56,7 +61,7 @@ private:
 
     at::Tensor output_tensor = torch::zeros({1,8});
 
-    numbers stroke_info = { 0.0, 0.0, 0.0, 0.0 };
+    numbers stroke_info = { 0.0, 0.0, 0.0, 0.0, 0.0 };
 
 public:
     MIN_DESCRIPTION{ "Pen sketching interface" };
@@ -74,7 +79,10 @@ public:
     void inference() {
         // Create a vector of inputs.
         std::vector<torch::jit::IValue> test_inputs;
-        test_inputs.push_back(torch::tensor({ { stroke_info[0], stroke_info[1], stroke_info[2], osc_1}}));
+
+        // CAUTION
+        //test_inputs.push_back(torch::tensor({ { stroke_info[0], stroke_info[1], 0.0, 0.0, osc_1}}));
+        test_inputs.push_back(torch::tensor({ { stroke_info[0], stroke_info[1]} }));
 
         // Execute the model and turn its output into a tensor.
         output_tensor = module.forward(test_inputs).toTensor();
@@ -105,7 +113,7 @@ public:
                 update_text();
 			}
 
-            m_timer.delay(50);
+            m_timer.delay(25);
             return {};
         }
     };
@@ -116,7 +124,7 @@ public:
 
 
     void send(symbol message_name, const event& e) {
-        
+        show_canvas = false;
         m_outlet_index.send(e.index());
 
         m_outlet_pen.send(e.pen_pressure());
@@ -156,6 +164,7 @@ public:
             "The path to a torchscript file."
         },
         setter { MIN_FUNCTION{
+            //target t { args };
             if (args[0] == "none"){
                 model_loaded = false;
                 cout << "waiting to load model" << endl;
@@ -173,10 +182,35 @@ public:
                 }
                 cout << "loaded model from " << std::string(m_path) << endl;
                 std::vector<torch::jit::IValue> test_inputs;
-                test_inputs.push_back(torch::tensor({ { -0.8681, 3.5148, -1.6512, -5.0145} }));
+                // CAUTION
+                //test_inputs.push_back(torch::tensor({ { -0.8681, 3.5148, -1.6512, -5.0145, 0.0} }));
+                test_inputs.push_back(torch::tensor({ { -0.8681, 3.5148} }));
                 output_tensor = module.forward(test_inputs).toTensor();
                 model_loaded = true;
                 //m_outlet_module.send(output_tensor);
+                int w = 474;
+                int h = 245;
+                float d = (w - h) / 2.0;
+
+                cout << "compiling mapping: h: " << h << ", w: " << w << endl;
+                canvas.clear();
+                for (int i = 0; i < h; i++) {
+                    std::vector<float> line;
+                    float y = scale(static_cast<float>(i), 0.0f, static_cast<float>(h), -3.0f, 3.0f);
+					for (int j = 0; j < w; j++) {
+						//line.push_back(0.0);
+                        std::vector<torch::jit::IValue> test_inputs;
+                        test_inputs.push_back(torch::tensor({ { scale(static_cast<float>(j), d, static_cast<float>(w - d), -3.0f, 3.0f), y} }));
+                        output_tensor = module.forward(test_inputs).toTensor();
+                        torch::Tensor ten = output_tensor.to(torch::kFloat);
+                        atoms result(ten.data_ptr<float>(), ten.data_ptr<float>() + 1);
+                        line.push_back(scale(clamp(static_cast<float>(result[0]), -3.0f, 3.0f), -3.0f, 3.0f, 0.0f, 1.0f));
+                    }
+                    canvas.push_back(line);
+				}
+                show_canvas = true;
+                cout << "mapping compiled: " << canvas.size() << ", " << canvas[0].size() << endl;
+                redraw();
 			}
             
             return {args[0]};
@@ -300,11 +334,26 @@ public:
     message<> m_paint{ this, "paint",
         MIN_FUNCTION {
             target t { args };
-
-            rect<fill> {	// background
-                t,
-                color { 0.2, 0.2, 0.2, 1.0 }
-            };
+            if (show_canvas) {
+                for (int i = 0; i < t.height(); i++) {
+                    for (int j = 0; j < t.width(); j++) {
+                        float v = canvas[i][j];
+						rect<fill> {
+							t,
+							color{ v, v, v, 1.0},
+							position{ j, i },
+							size{ 1.0, 1.0 }
+						};
+                    }
+                }
+            }
+            else {
+                rect<fill> {	// background
+                    t,
+                        color{ 0.2, 0.2, 0.2, 1.0 }
+                };
+            }
+            
             x_prev = 0.0;
             y_prev = 0.0;
             float ink = 1.0;
