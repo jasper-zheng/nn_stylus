@@ -38,14 +38,18 @@ link_libraries(
 
 set( SOURCE_FILES
 	${PROJECT_NAME}.cpp
- "utils.h")
+	"utils.h"
+	"pen.h"
+)
 
 
 add_library( 
 	${PROJECT_NAME} 
 	MODULE
 	${SOURCE_FILES}
- "utils.h")
+	"utils.h" 
+	"pen.h"
+)
 
 
 include(${C74_MIN_API_DIR}/script/min-posttarget.cmake)

@@ -12,6 +12,7 @@
 #include "torch/script.h"
 
 #include "utils.h"
+#include "pen.h"
 #include <algorithm>
 
 using namespace c74::min;
@@ -68,6 +69,23 @@ private:
     // ---------------------- image
 
     c74::max::t_jsurface* m_surface{ nullptr };
+    c74::max::t_jsurface* m_paint_surface{ nullptr };
+    //target m_paint_target;
+    //std::unique_ptr<target> m_paint_target;
+    boolean save_action = false;
+    image m_image{ this,100.0,100.0, path("locator").get_path(), MIN_FUNCTION{
+        //cout << "image" << endl;
+        target t { args};
+        //c74::max::jgraphics_image_surface_draw(t[0], args[1], {0.0, 0.0, m_width, m_height}, {0.0, 0.0, m_width, m_height});
+        rect<fill> {
+            t,
+            color{ 1.0, 1.0, 1.0, 0.8 },
+            position{ 0.0, 0.0 },
+            size{ 100.0, 160.0}
+        };
+        return{};
+    }};
+    
     // ---------------------- 
 
 public:
@@ -83,6 +101,16 @@ public:
     outlet<>    m_outlet_pen{ this, "(float) pen pressure between 0. and 1." };
     outlet<>    m_outlet_index{ this, "int with index of the touch, not useful for mouse or pen" };
     outlet<>    m_outlet_module{ this, "outputs from the module inference" };
+
+    const function paint_function = [this](const c74::min::atoms& args, const int inlet)->c74::min::atoms {
+        cout << "a_function" << endl;
+        //if (args[3]) {
+        //    cout << "save_action" << endl;
+        //    c74::max::jgraphics_image_surface_writepng(args[4], "export22.png", c74::min::path::path("export.jpg").get_path(), 72.0);
+        //}
+        
+        return {};
+    };
 
     void inference() {
         // Create a vector of inputs.
@@ -108,6 +136,7 @@ public:
         m_timer.delay(1000);
 
         m_surface = c74::max::jgraphics_image_surface_create_from_file("export.jpg", path("export.jpg").get_path());
+        cout << c74::max::path_getapppath() << endl;
     }
     timer<timer_options::defer_delivery> m_timer{ this,
         MIN_FUNCTION {
@@ -132,6 +161,10 @@ public:
         if (m_surface) {
             c74::max::jgraphics_surface_destroy(m_surface);
             m_surface = nullptr;
+        }
+        if (m_paint_surface) {
+            c74::max::jgraphics_surface_destroy(m_paint_surface);
+            m_paint_surface = nullptr;
         }
         cout << "destructed" << endl;
 	}
@@ -268,6 +301,16 @@ public:
             }
             string results = create_log_and_save(patch_path, src_content);
             cout << "saved log to: " << results << endl;
+
+            //auto& aa{ m_pages[0][0]};
+            //cout << std::to_string(static_cast<int>(m_paint_target->x())) << endl;
+            //c74::max::jgraphics_save(*m_paint_target);
+            ////cout << "writing paintings" << endl;
+            ////m_paint_surface = c74::max::jgraphics_get_target(*m_paint_target);
+            //c74::max::jgraphics_image_surface_writepng(c74::max::jgraphics_get_target(*m_paint_target), "export22.png", path("export.jpg").get_path(), 72.0);
+            save_action = true;
+            redraw();
+
             return {};
         }
     };
@@ -344,9 +387,13 @@ public:
             return {};
         }
     };
+
+
+
     message<> m_paint{ this, "paint",
         MIN_FUNCTION {
             target t { args };
+            //m_paint_target = std::make_unique<target>(args);
             if (show_canvas) {
                 for (int i = 0; i < t.height(); i++) {
                     for (int j = 0; j < t.width(); j++) {
@@ -369,6 +416,9 @@ public:
 
             c74::max::jgraphics_image_surface_draw_fast(t, m_surface);
 
+            //m_image.draw(t, 10., 10., 80., 80.);
+            m_image.redraw(200,200, false);
+            m_image.draw(t, 0., 0., 200., 200.);
             x_prev = 0.0;
             y_prev = 0.0;
             float ink = 1.0;
@@ -451,7 +501,11 @@ public:
                     content {m_text}
                 };
 			}
-
+            
+            if (save_action) {
+                m_image.redraw(200, 200, true);
+                save_action = false;
+            }
             return {};
         }
     };
