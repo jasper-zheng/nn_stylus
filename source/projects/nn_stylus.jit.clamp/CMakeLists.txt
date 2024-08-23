@@ -6,9 +6,6 @@ cmake_minimum_required(VERSION 3.0)
 set(C74_MIN_API_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../min-api)
 include(${C74_MIN_API_DIR}/script/min-pretarget.cmake)
 
-set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../libtorch)
-find_package(Torch REQUIRED)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
 #############################################################
 # MAX EXTERNAL
@@ -22,13 +19,8 @@ include_directories(
 
 set( SOURCE_FILES
 	${PROJECT_NAME}.cpp
-	../shared/signal_routing_objects.h
-	../shared/signal_routing_objects.cpp
 )
 
-link_libraries(
-	"${TORCH_LIBRARIES}"
-)
 
 add_library( 
 	${PROJECT_NAME} 
@@ -44,4 +36,4 @@ include(${C74_MIN_API_DIR}/script/min-posttarget.cmake)
 # UNIT TEST
 #############################################################
 
-#include(${C74_MIN_API_DIR}/test/min-object-unittest.cmake)
+include(${C74_MIN_API_DIR}/test/min-object-unittest.cmake)

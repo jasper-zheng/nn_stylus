@@ -50,6 +50,8 @@ private:
     boolean is_touching = false;
     boolean model_loaded = false;
 
+    float m_scale = 3.0f;
+    number m_scale_num = 3.0f;
 
     boolean is_logging = true;
     int log_page_count = 0;
@@ -63,14 +65,20 @@ private:
 
     numbers stroke_info = { 0.0, 0.0, 0.0, 0.0, 0.0 };
 
+    // ---------------------- image
+
+    c74::max::t_jsurface* m_surface{ nullptr };
+    // ---------------------- 
+
 public:
     MIN_DESCRIPTION{ "Pen sketching interface" };
-    MIN_TAGS{ "ui, multitouch" }; // if multitouch tag is defined then multitouch is supported but mousedragdelta is not supported
+    MIN_TAGS{ "ui, multitouch, math" }; // if multitouch tag is defined then multitouch is supported but mousedragdelta is not supported
     MIN_AUTHOR{ "Cycling '74" };
-    MIN_RELATED{ "mousestate" };
+    MIN_RELATED{ "mousestate, jit.clip" };
 
     inlet<>     m_input{ this, "(anything) ignored" };
     inlet<>     m_osc{ this, "(float) ignored" };
+
     outlet<>    m_outlet_main{ this, "primary stuff: type phase x y modifiers" };
     outlet<>    m_outlet_pen{ this, "(float) pen pressure between 0. and 1." };
     outlet<>    m_outlet_index{ this, "int with index of the touch, not useful for mouse or pen" };
@@ -98,6 +106,8 @@ public:
             cout << "Torch is using CPU" << endl;
         }
         m_timer.delay(1000);
+
+        m_surface = c74::max::jgraphics_image_surface_create_from_file("export.jpg", path("export.jpg").get_path());
     }
     timer<timer_options::defer_delivery> m_timer{ this,
         MIN_FUNCTION {
@@ -119,6 +129,10 @@ public:
     };
     ~min_multitouch() {
 		m_timer.stop();
+        if (m_surface) {
+            c74::max::jgraphics_surface_destroy(m_surface);
+            m_surface = nullptr;
+        }
         cout << "destructed" << endl;
 	}
 
@@ -140,8 +154,8 @@ public:
             event_type = c74::max::gensym("unknown");
 
         number d = (e.target().width() - e.target().height())/2.0;
-        stroke_info[0] = scale(e.x(), d, e.target().width()-d, -3.0, 3.0);
-        stroke_info[1] = scale(e.y(), 0.0, e.target().height(), -3.0, 3.0);
+        stroke_info[0] = scale(e.x(), d, e.target().width()-d, -m_scale_num, m_scale_num);
+        stroke_info[1] = scale(e.y(), 0.0, e.target().height(), -m_scale_num, m_scale_num);
         stroke_info[2] = scale(e.pen_pressure(), 0.0, 1.0, -3.0, 3.0, 2.0);
 
         m_outlet_main.send(message_name, event_type, stroke_info[0], stroke_info[1], e.is_command_key_down(), e.is_shift_key_down());
@@ -196,11 +210,11 @@ public:
                 canvas.clear();
                 for (int i = 0; i < h; i++) {
                     std::vector<float> line;
-                    float y = scale(static_cast<float>(i), 0.0f, static_cast<float>(h), -3.0f, 3.0f);
+                    float y = scale(static_cast<float>(i), 0.0f, static_cast<float>(h), -m_scale, m_scale);
 					for (int j = 0; j < w; j++) {
 						//line.push_back(0.0);
                         std::vector<torch::jit::IValue> test_inputs;
-                        test_inputs.push_back(torch::tensor({ { scale(static_cast<float>(j), d, static_cast<float>(w - d), -3.0f, 3.0f), y} }));
+                        test_inputs.push_back(torch::tensor({ { scale(static_cast<float>(j), d, static_cast<float>(w - d), -m_scale, m_scale), y} }));
                         output_tensor = module.forward(test_inputs).toTensor();
                         torch::Tensor ten = output_tensor.to(torch::kFloat);
                         atoms result(ten.data_ptr<float>(), ten.data_ptr<float>() + 1);
@@ -230,7 +244,6 @@ public:
         return {};
     }
     };
-
     message<> m_save_log{ this, "log",
         MIN_FUNCTION {
 
@@ -353,7 +366,9 @@ public:
                         color{ 0.2, 0.2, 0.2, 1.0 }
                 };
             }
-            
+
+            c74::max::jgraphics_image_surface_draw_fast(t, m_surface);
+
             x_prev = 0.0;
             y_prev = 0.0;
             float ink = 1.0;
