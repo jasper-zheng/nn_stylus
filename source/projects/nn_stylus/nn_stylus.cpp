@@ -13,18 +13,26 @@
 
 #include "utils.h"
 #include "pen.h"
+#include "min_path.h"
 #include <algorithm>
 
 using namespace c74::min;
 using namespace c74::min::ui;
 
-class min_multitouch : public object<min_multitouch>, public ui_operator<474, 245> {
+class nn_stylus : public object<nn_stylus>, public ui_operator<948, 490> {
 private:
-    vector<event> m_events;
-    vector<symbol> m_event_phases;
 
-    vector<vector<event>> m_pages;
-    vector<vector<symbol>> m_pages_phases;
+    vector<event> m_events_slice;
+    vector<symbol> m_event_phases_slice;
+    vector<color> m_event_colors_slice;
+
+    vector<vector<event>> m_events;
+    vector<vector<symbol>> m_event_phases;
+    vector<vector<color>> m_event_colors;
+
+    vector<vector<vector<event>>> m_pages;
+    vector<vector<vector<symbol>>> m_pages_phases;
+    vector<vector<vector<color>>> m_pages_colors;
 
     vector<float> canvas_line;
     vector<vector<float>> canvas;
@@ -43,8 +51,11 @@ private:
     float fading_speed = 0.3;
 
     string	m_text;
-    attribute<symbol>  m_fontname{ this, "fontname", "lato-light" };
+    symbol m_fontname{ "lato-light" };
     attribute<number>  m_fontsize{ this, "fontsize", 8.0 };
+    attribute<bool>  is_fading{ this, "fade history", true };
+    attribute<color>  ink_color{ this, "ink color", color{1.0,1.0,1.0,1.0} };
+    attribute<number> page_refresh{ this, "page refresh", 1000 };
 
     number pen_pressure {};
     boolean is_using_pen = false;
@@ -59,34 +70,14 @@ private:
     int log_point_count = 0;
     string patch_path = min_devkit_path();
 
-    c74::min::path m_path;
+    min_path m_path;
     torch::jit::script::Module module;
 
     at::Tensor output_tensor = torch::zeros({1,8});
 
     numbers stroke_info = { 0.0, 0.0, 0.0, 0.0, 0.0 };
 
-    // ---------------------- image
 
-    c74::max::t_jsurface* m_surface{ nullptr };
-    c74::max::t_jsurface* m_paint_surface{ nullptr };
-    //target m_paint_target;
-    //std::unique_ptr<target> m_paint_target;
-    boolean save_action = false;
-    image m_image{ this,100.0,100.0, path("locator").get_path(), MIN_FUNCTION{
-        //cout << "image" << endl;
-        target t { args};
-        //c74::max::jgraphics_image_surface_draw(t[0], args[1], {0.0, 0.0, m_width, m_height}, {0.0, 0.0, m_width, m_height});
-        rect<fill> {
-            t,
-            color{ 1.0, 1.0, 1.0, 0.8 },
-            position{ 0.0, 0.0 },
-            size{ 100.0, 160.0}
-        };
-        return{};
-    }};
-    
-    // ---------------------- 
 
 public:
     MIN_DESCRIPTION{ "Pen sketching interface" };
@@ -102,16 +93,6 @@ public:
     outlet<>    m_outlet_index{ this, "int with index of the touch, not useful for mouse or pen" };
     outlet<>    m_outlet_module{ this, "outputs from the module inference" };
 
-    const function paint_function = [this](const c74::min::atoms& args, const int inlet)->c74::min::atoms {
-        cout << "a_function" << endl;
-        //if (args[3]) {
-        //    cout << "save_action" << endl;
-        //    c74::max::jgraphics_image_surface_writepng(args[4], "export22.png", c74::min::path::path("export.jpg").get_path(), 72.0);
-        //}
-        
-        return {};
-    };
-
     void inference() {
         // Create a vector of inputs.
         std::vector<torch::jit::IValue> test_inputs;
@@ -125,18 +106,14 @@ public:
     }
 
 
-    min_multitouch(const atoms& args = {})
+    nn_stylus(const atoms& args = {})
         : ui_operator::ui_operator{ this, args } {
         if (torch::hasCUDA()) {
             cout << "Torch has CUDA" << endl;
-        }
-        else {
+        } else {
             cout << "Torch is using CPU" << endl;
         }
         m_timer.delay(1000);
-
-        m_surface = c74::max::jgraphics_image_surface_create_from_file("export.jpg", path("export.jpg").get_path());
-        cout << c74::max::path_getapppath() << endl;
     }
     timer<timer_options::defer_delivery> m_timer{ this,
         MIN_FUNCTION {
@@ -156,19 +133,18 @@ public:
             return {};
         }
     };
-    ~min_multitouch() {
+    ~nn_stylus() {
 		m_timer.stop();
-        if (m_surface) {
-            c74::max::jgraphics_surface_destroy(m_surface);
-            m_surface = nullptr;
-        }
-        if (m_paint_surface) {
-            c74::max::jgraphics_surface_destroy(m_paint_surface);
-            m_paint_surface = nullptr;
-        }
+        //if (m_surface) {
+        //    c74::max::jgraphics_surface_destroy(m_surface);
+        //    m_surface = nullptr;
+        //}
+        //if (m_paint_surface) {
+        //    c74::max::jgraphics_surface_destroy(m_paint_surface);
+        //    m_paint_surface = nullptr;
+        //}
         cout << "destructed" << endl;
 	}
-
 
     void send(symbol message_name, const event& e) {
         show_canvas = false;
@@ -193,8 +169,9 @@ public:
 
         m_outlet_main.send(message_name, event_type, stroke_info[0], stroke_info[1], e.is_command_key_down(), e.is_shift_key_down());
 
-        m_events.push_back(e);
-        m_event_phases.push_back(message_name);
+        m_events_slice.push_back(e);
+        m_event_phases_slice.push_back(message_name);
+        m_event_colors_slice.push_back(color{ ink_color.get().red(), ink_color.get().green(), ink_color.get().blue(), ink_color.get().alpha() });
         redraw();
     }
 
@@ -218,7 +195,7 @@ public:
             } else {
                 auto model_path = std::string(args[0]);
                 
-                m_path = path(model_path);
+                m_path = min_path(model_path);
                 try {
                     // Deserialize the ScriptModule from a file using torch::jit::load().
                     module = torch::jit::load(std::string(m_path));
@@ -235,8 +212,8 @@ public:
                 output_tensor = module.forward(test_inputs).toTensor();
                 model_loaded = true;
                 //m_outlet_module.send(output_tensor);
-                int w = 474;
-                int h = 245;
+                int w = this->default_width();
+                int h = this->default_height();
                 float d = (w - h) / 2.0;
 
                 cout << "compiling mapping: h: " << h << ", w: " << w << endl;
@@ -263,6 +240,21 @@ public:
             return {args[0]};
         }}
     };
+    attribute<symbol> canvas_background{ this, "canvas_background", "none",
+        description {
+            "Background image"
+            "The path to the background image."
+        },
+        setter { MIN_FUNCTION{
+            if (args[0] == "none") {
+                m_image.clear_background();
+            } else {
+                m_image.set_background(std::string(args[0]).c_str());
+            }
+            redraw();
+            return {args[0]};
+        }}
+	};
     message<threadsafe::yes> m_ints{
     this, "int", "OSC information", MIN_FUNCTION {
         switch (inlet) {
@@ -285,43 +277,60 @@ public:
             for (int i = 0; i < m_pages.size(); i++) {
 				const auto& page {m_pages[i]};
 				for (int j = 0; j < page.size(); j++) {
-					const auto& e {page[j]};
-					const auto& phase { m_event_phases[j]};
-                    src_content += std::to_string(i) + "," + std::to_string(static_cast<int>(e.x())) + "," + std::to_string(static_cast<int>(e.y())) + "," + std::to_string(e.pen_pressure()).substr(0, 5) + "," + phase.c_str() + "\n";
-
+                    const auto& event_slices{ page[j] };
+                    //const auto& phase{ m_event_phases[j] };
+                    for (int k = 0; k < event_slices.size(); k++) {
+                        const auto& e{ event_slices[k] };
+                    	const auto& phase{ m_event_phases_slice[k]};
+                        src_content += std::to_string(i) + "," + std::to_string(static_cast<int>(e.x())) + "," + std::to_string(static_cast<int>(e.y())) + "," + std::to_string(e.pen_pressure()).substr(0, 5) + "," + phase.c_str() + "\n";
+                    }
 				}
 			}
 
             for (int i = 0; i < m_events.size(); i++) {
-				const auto& e {m_events[i]};
-				const auto& phase { m_event_phases[i]};
-
-                src_content += std::to_string(m_pages.size()) + "," + std::to_string(static_cast<int>(e.x())) + "," + std::to_string(static_cast<int>(e.y())) + "," + std::to_string(e.pen_pressure()).substr(0, 5) + "," + phase.c_str() + "\n";
-                
+				const auto& event_slices{m_events[i]};
+                for (int k = 0; k < event_slices.size(); k++) {
+                    const auto& e{ event_slices[k] };
+                    const auto& phase{ m_event_phases_slice[k] };
+                    src_content += std::to_string(m_pages.size()) + "," + std::to_string(static_cast<int>(e.x())) + "," + std::to_string(static_cast<int>(e.y())) + "," + std::to_string(e.pen_pressure()).substr(0, 5) + "," + phase.c_str() + "\n";
+                }
             }
-            string results = create_log_and_save(patch_path, src_content);
-            cout << "saved log to: " << results << endl;
 
-            //auto& aa{ m_pages[0][0]};
-            //cout << std::to_string(static_cast<int>(m_paint_target->x())) << endl;
-            //c74::max::jgraphics_save(*m_paint_target);
-            ////cout << "writing paintings" << endl;
-            ////m_paint_surface = c74::max::jgraphics_get_target(*m_paint_target);
-            //c74::max::jgraphics_image_surface_writepng(c74::max::jgraphics_get_target(*m_paint_target), "export22.png", path("export.jpg").get_path(), 72.0);
-            save_action = true;
-            redraw();
+            for (int k = 0; k < m_events_slice.size(); k++) {
+				const auto& e{ m_events_slice[k] };
+				const auto& phase{ m_event_phases_slice[k] };
+				src_content += std::to_string(m_pages.size()) + "," + std::to_string(static_cast<int>(e.x())) + "," + std::to_string(static_cast<int>(e.y())) + "," + std::to_string(e.pen_pressure()).substr(0, 5) + "," + phase.c_str() + "\n";
+			}
 
+            atoms results = create_log_and_save(patch_path, src_content);
+            cout << "saved log to: " << results[0] << endl;
+            m_image.write_and_lock(static_cast<string>(results[1])+".png", 150);
             return {};
         }
     };
     message<> m_clear{ this, "clear",
         MIN_FUNCTION {
-            vector<event> new_e = m_events;
-            vector<symbol> new_e_phase = m_event_phases;
+            vector<event> new_e_slice = m_events_slice;
+            vector<symbol> new_e_phase_slice = m_event_phases_slice;
+            m_events.push_back(new_e_slice);
+            m_event_phases.push_back(new_e_phase_slice);
+
+            vector<vector<event>> new_e = m_events;
+            vector<vector<symbol>> new_e_phase = m_event_phases;
+
             m_pages.push_back(new_e);
             m_pages_phases.push_back(new_e_phase);
+            m_pages_colors.push_back(m_event_colors);
+
+            m_events_slice.clear();
+            m_event_phases_slice.clear();
+            m_event_colors_slice.clear();
             m_events.clear();
             m_event_phases.clear();
+            m_event_colors.clear();
+
+            m_image.clear_history();
+
             update_text();
             redraw();
             return {};
@@ -388,7 +397,97 @@ public:
         }
     };
 
+    // ---------------------- image
 
+    pen m_image{ this,100.0,100.0, min_path("locator").get_path(), MIN_FUNCTION{
+        target t { args };
+
+        x_prev = 0.0; 
+        y_prev = 0.0;
+        float ink = 1.0;
+
+        for (auto i = m_events_slice.size() ; i > 0; --i) {
+
+            const auto& e {m_events_slice[i-1]};
+            const auto& phase { m_event_phases_slice[i-1]};
+            const auto& e_color { m_event_colors_slice[i-1]};
+
+            if ((phase == "up") || (phase == "drag")) {
+                is_using_pen = (e.type() == event::input_type::pen);
+            } else if (phase == "down" && is_fading) {
+                ink -= fading_speed;
+            }
+
+            bool permanent = (phase == "drag") || (phase == "down") || (phase == "up");
+            number brightness = permanent ? 1.0 : 0.8;
+
+            number radius;
+            if (e.type() == event::input_type::touch)
+                radius = 10;
+            else if (e.type() == event::input_type::pen)
+                radius = 2;
+            else // input_type::mouse
+                radius = 4;
+
+            color c { e_color.red(), e_color.green(), e_color.blue(), std::max(0.08f, ink)};
+            m_anchor_x = e.x();
+            m_anchor_y = e.y();
+
+            if ((i == m_events_slice.size()) || (phase == "up") ){
+                start_x = m_anchor_x;
+                start_y = m_anchor_y;
+            }
+            else {
+                start_x = x_prev;
+                start_y = y_prev;
+            }
+
+            number line_width_now = is_using_pen ? 0.1+4.0*e.pen_pressure() : 1.0;
+
+            if (permanent) {
+                line<> {
+                    t,
+                    color{ c },
+                    position{ start_x, start_y },
+                    destination{ m_anchor_x, m_anchor_y },
+                    line_width{ line_width_now }
+                };
+            } else {
+                ellipse<fill> {
+                    t,
+                    color{ c },
+                    position{ m_anchor_x - radius, m_anchor_y - radius },
+                    size{ radius * 2, radius * 2 }
+                };
+                m_events_slice.erase(m_events_slice.begin() + (i - 1));
+                m_event_phases_slice.erase(m_event_phases_slice.begin() + (i - 1));
+                m_event_colors_slice.erase(m_event_colors_slice.begin() + (i - 1));
+            }
+            x_prev = m_anchor_x;
+            y_prev = m_anchor_y;
+        }
+
+        if (m_events_slice.size() >= page_refresh) {
+            m_event_phases_slice[m_events_slice.size() - 1] = "up";
+
+            m_events.push_back(m_events_slice);
+            m_event_phases.push_back(m_event_phases_slice);
+            m_event_colors.push_back(m_event_colors_slice); 
+
+            m_image.write_and_lock("export24aa.png", 72);
+
+            m_events_slice.clear();
+            m_event_phases_slice.clear();
+            m_event_colors_slice.clear();
+
+            m_events_slice.push_back(m_events[m_events.size() - 1][m_events[m_events.size() - 1].size() - 1]);
+            m_event_phases_slice.push_back("down");
+            m_event_colors_slice.push_back(m_event_colors[m_event_colors.size() - 1][m_event_colors[m_event_colors.size() - 1].size() - 1]);
+
+            m_image.draw_history("export24aa.png");
+        }
+        return{ {ink} };
+    } };
 
     message<> m_paint{ this, "paint",
         MIN_FUNCTION {
@@ -410,87 +509,12 @@ public:
             else {
                 rect<fill> {	// background
                     t,
-                        color{ 0.2, 0.2, 0.2, 1.0 }
+                    color{ 0.2, 0.2, 0.2, 1.0 }
                 };
             }
 
-            c74::max::jgraphics_image_surface_draw_fast(t, m_surface);
-
-            //m_image.draw(t, 10., 10., 80., 80.);
-            m_image.redraw(200,200, false);
-            m_image.draw(t, 0., 0., 200., 200.);
-            x_prev = 0.0;
-            y_prev = 0.0;
-            float ink = 1.0;
-            for (auto i = m_events.size() ; i > 0; --i) {
-                const auto& e {m_events[i-1]};
-
-                const auto& phase { m_event_phases[i-1]};
-
-
-                if ((phase == "up") || (phase == "drag")) {
-                    is_using_pen = (e.type() == event::input_type::pen);
-                } else if (phase == "down") {
-                    ink -= fading_speed;
-                }
-                    //&& (e.type() == event::input_type::pen);
-
-                bool permanent = (phase == "drag") || (phase == "down") || (phase == "up");
-                number brightness = permanent ? 0.8 : 1.0;
-
-                number radius;
-                if (e.type() == event::input_type::touch)
-                    radius = 30;
-                else if (e.type() == event::input_type::pen)
-                    radius = 2;
-                else // input_type::mouse
-                    radius = 4;
-
-                color c {brightness, brightness, brightness, std::max(0.08f, ink)};
-
-                m_anchor_x = e.x();
-                m_anchor_y = e.y();
-
-                if ((i == m_events.size()) || (phase == "up") ){
-                    start_x = m_anchor_x;
-                    start_y = m_anchor_y;
-                }
-                else {
-                    start_x = x_prev;
-                    start_y = y_prev;
-                }
-
-                number line_width_now = is_using_pen ? 0.1+4.0*e.pen_pressure() : 1.0;
-
-                if (permanent) {
-                    line<> {
-                        t,
-                        color{ c },
-                        position{ start_x, start_y },
-                        destination{ m_anchor_x, m_anchor_y },
-                        line_width{ line_width_now }
-                    };
-                } else {
-                    ellipse<fill> {
-                        t,
-                        color{ c },
-                        position{ m_anchor_x - radius, m_anchor_y - radius },
-                        size{ radius * 2, radius * 2 }
-                    };
-                }
-                x_prev = m_anchor_x;
-                y_prev = m_anchor_y;
-            }
-
-            for (auto i = m_events.size(); i > 0; --i) {
-                const auto& phase {m_event_phases[i - 1]};
-                bool permanent = (phase == "drag") || (phase == "down") || (phase == "up");
-                //bool permanent = (phase == "drag") || (phase == "down");
-                if (!permanent) {
-                    m_events.erase(m_events.begin() + (i - 1));
-                    m_event_phases.erase(m_event_phases.begin() + (i - 1));
-                }
-            }
+            m_image.redraw(t.width(), t.height());
+            m_image.draw(t, 0., 0., t.width(), t.height());
 
             if (is_logging) {
                 text{			// text display
@@ -501,11 +525,6 @@ public:
                     content {m_text}
                 };
 			}
-            
-            if (save_action) {
-                m_image.redraw(200, 200, true);
-                save_action = false;
-            }
             return {};
         }
     };
@@ -513,11 +532,11 @@ public:
 
     void update_text() {
         m_text = "logging - pages: " + std::to_string(m_pages.size())
-            + " points: " + std::to_string(m_events.size())
+            + " points: " + std::to_string(m_events_slice.size())
                           + " path: " + patch_path;
     }
 
 };
 
 
-MIN_EXTERNAL(min_multitouch);
+MIN_EXTERNAL(nn_stylus);

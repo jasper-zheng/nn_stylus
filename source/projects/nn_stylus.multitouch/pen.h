@@ -1,1 +1,0 @@
-double this_this = 0.0;

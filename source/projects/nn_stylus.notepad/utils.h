@@ -9,7 +9,7 @@
 using namespace c74::min;
 
 
-std::string create_log_and_save(const std::string& base_path, const std::string& input) {
+atoms create_log_and_save(const std::string& base_path, const std::string& input) {
 
     std::filesystem::create_directory(base_path + "/logs");
 
@@ -29,7 +29,8 @@ std::string create_log_and_save(const std::string& base_path, const std::string&
         }
     }
     // Use the timestamp as the file name
-    string src_path_str = base_path + "/logs/log - " + timestamp_str + ".txt";
+    string file_name = "log - " + timestamp_str;
+    string src_path_str = base_path + "/logs/" + file_name + ".txt";
 
     string src_content;
     {
@@ -43,7 +44,7 @@ std::string create_log_and_save(const std::string& base_path, const std::string&
         out.close();
     }
     
-    return src_path_str;
+    return { {src_path_str, file_name} };
 }
 
 std::string min_devkit_path() {

@@ -40,6 +40,7 @@ set( SOURCE_FILES
 	${PROJECT_NAME}.cpp
 	"utils.h"
 	"pen.h"
+	"min_path.h"
 )
 
 
@@ -49,7 +50,7 @@ add_library(
 	${SOURCE_FILES}
 	"utils.h" 
 	"pen.h"
-)
+    "min_path.h")
 
 
 include(${C74_MIN_API_DIR}/script/min-posttarget.cmake)
