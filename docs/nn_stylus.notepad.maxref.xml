@@ -63,12 +63,17 @@
 			<description></description>
 		</attribute>
 
-		<attribute name='fade history' get='1' set='1' type='long' size='1' >
+		<attribute name='fade_history' get='1' set='1' type='long' size='1' >
 			<digest></digest>
 			<description></description>
 		</attribute>
 
-		<attribute name='ink color' get='1' set='1' type='float64' size='1' >
+		<attribute name='ink_color' get='1' set='1' type='float64' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='page_refresh' get='1' set='1' type='float64' size='1' >
 			<digest></digest>
 			<description></description>
 		</attribute>
@@ -76,6 +81,16 @@
 		<attribute name='canvas_background' get='1' set='1' type='symbol' size='1' >
 			<digest>Background imageThe path to the background image</digest>
 			<description>Background imageThe path to the background image. </description>
+		</attribute>
+
+		<attribute name='display_log_path' get='1' set='1' type='long' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='note_name' get='1' set='1' type='symbol' size='1' >
+			<digest></digest>
+			<description></description>
 		</attribute>
 
 	</attributelist>

@@ -71,7 +71,8 @@ public:
 			c74::max::jgraphics_image_surface_draw(ctx, m_background_surface, { 0.0, 0.0, bg_width, bg_height }, { 0.0, 0.0, m_width, m_height });
 		}
         if (m_history_surface) {
-            color c{ 1.0, 1.0, 1.0, std::max(0.7, m_history_ink) };
+            //color c{ 1.0, 1.0, 1.0, std::max(0.7, m_history_ink) };
+            color c{ 1.0, 1.0, 1.0, 1.0 };
             c74::max::jgraphics_set_source_jrgba(ctx, c);
             c74::max::jgraphics_image_surface_draw(ctx, m_history_surface, { 0.0, 0.0, m_width, m_height }, { 0.0, 0.0, m_width, m_height });
         }

@@ -9,7 +9,7 @@
 using namespace c74::min;
 
 
-atoms create_log_and_save(const std::string& base_path, const std::string& input) {
+atoms create_log_and_save(const std::string& save_name, const std::string& base_path, const std::string& input) {
 
     std::filesystem::create_directory(base_path + "/logs");
 
@@ -29,7 +29,7 @@ atoms create_log_and_save(const std::string& base_path, const std::string& input
         }
     }
     // Use the timestamp as the file name
-    string file_name = "log - " + timestamp_str;
+    string file_name = save_name + " note log - " + timestamp_str;
     string src_path_str = base_path + "/logs/" + file_name + ".txt";
 
     string src_content;

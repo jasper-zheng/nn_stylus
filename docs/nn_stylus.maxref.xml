@@ -36,9 +36,9 @@
 
 	<methodlist>
 
-		<method name='int'>
-			<digest>OSC information </digest>
-			<description>OSC information </description>
+		<method name='start_record'>
+			<digest></digest>
+			<description></description>
 		</method>
 
 		<method name='log'>
@@ -51,12 +51,27 @@
 			<description></description>
 		</method>
 
+		<method name='mt_mousedrag'>
+			<digest></digest>
+			<description></description>
+		</method>
+
 		<method name='hello'>
 			<digest></digest>
 			<description></description>
 		</method>
 
-		<method name='mt_mousedrag'>
+		<method name='terrain_create'>
+			<digest></digest>
+			<description></description>
+		</method>
+
+		<method name='terrain'>
+			<digest></digest>
+			<description></description>
+		</method>
+
+		<method name='terrain_clear'>
 			<digest></digest>
 			<description></description>
 		</method>
@@ -68,7 +83,27 @@
 
 	<attributelist>
 
-		<attribute name='page refresh' get='1' set='1' type='float64' size='1' >
+		<attribute name='line_min' get='1' set='1' type='float64' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='fade_history' get='1' set='1' type='long' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='fading_speed' get='1' set='1' type='float64' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='fading_min' get='1' set='1' type='float64' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='line_width_scale' get='1' set='1' type='float64' size='1' >
 			<digest></digest>
 			<description></description>
 		</attribute>
@@ -78,12 +113,12 @@
 			<description></description>
 		</attribute>
 
-		<attribute name='fade history' get='1' set='1' type='long' size='1' >
+		<attribute name='ink_color' get='1' set='1' type='float64' size='1' >
 			<digest></digest>
 			<description></description>
 		</attribute>
 
-		<attribute name='ink color' get='1' set='1' type='float64' size='1' >
+		<attribute name='page_refresh' get='1' set='1' type='float64' size='1' >
 			<digest></digest>
 			<description></description>
 		</attribute>
@@ -93,9 +128,34 @@
 			<description>Background imageThe path to the background image. </description>
 		</attribute>
 
+		<attribute name='shift_scale' get='1' set='1' type='float64' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='shift_theta' get='1' set='1' type='float64' size='1' >
+			<digest>shift theta (in radians) </digest>
+			<description>shift theta (in radians) </description>
+		</attribute>
+
+		<attribute name='log_name' get='1' set='1' type='symbol' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
+		<attribute name='canvas_scale' get='1' set='1' type='float64' size='1' >
+			<digest></digest>
+			<description></description>
+		</attribute>
+
 		<attribute name='model' get='1' set='1' type='symbol' size='1' >
 			<digest>Model to be loaded.The path to a torchscript file</digest>
 			<description>Model to be loaded.The path to a torchscript file. </description>
+		</attribute>
+
+		<attribute name='load_log' get='1' set='1' type='symbol' size='1' >
+			<digest>Logs to be loaded.The path to a drawing log file (.txt)</digest>
+			<description>Logs to be loaded.The path to a drawing log file (.txt). </description>
 		</attribute>
 
 	</attributelist>

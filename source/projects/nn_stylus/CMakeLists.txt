@@ -41,6 +41,7 @@ set( SOURCE_FILES
 	"utils.h"
 	"pen.h"
 	"min_path.h"
+	"terrain.h"
 )
 
 
@@ -50,7 +51,8 @@ add_library(
 	${SOURCE_FILES}
 	"utils.h" 
 	"pen.h"
-    "min_path.h")
+    "min_path.h" 
+	"terrain.h")
 
 
 include(${C74_MIN_API_DIR}/script/min-posttarget.cmake)

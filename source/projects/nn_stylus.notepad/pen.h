@@ -99,6 +99,12 @@ public:
         bg_width = static_cast<int>(c74::max::jgraphics_image_surface_get_width(m_background_surface));
 		m_has_background = true;
 	}
+    double get_width() {
+		return bg_width;
+	}
+    double get_height() {
+        return bg_height;
+    }
 
     void clear_background() {
         m_background_surface = c74::max::jgraphics_image_surface_create(c74::max::JGRAPHICS_FORMAT_ARGB32, m_width, m_height);

@@ -8,8 +8,6 @@
 
 
 #include "c74_min.h"
-#include "torch/torch.h"
-#include "torch/script.h"
 
 #include "utils.h"
 #include "pen.h"
@@ -46,9 +44,10 @@ private:
     string	m_text;
     symbol m_fontname{ "lato-light" };
     attribute<number>  m_fontsize{ this, "fontsize", 8.0 };
-    attribute<bool>  is_fading{ this, "fade history", true };
-    attribute<color>  ink_color{ this, "ink color", color{1.0,1.0,1.0,1.0} };
-    attribute<number> page_refresh{ this, "page refresh", 1000 };
+    attribute<bool>  is_fading{ this, "fade_history", true };
+    attribute<color>  ink_color{ this, "ink_color", color{1.0,1.0,1.0,1.0} };
+    //attribute<color>  m_background_color{ this, "background_color", color{0.1,0.1,0.1,1.0} };
+    attribute<number> page_refresh{ this, "page_refresh", 1000 };
 
     number pen_pressure {};
     boolean is_using_pen = false;
@@ -59,6 +58,8 @@ private:
     number m_scale_num = 3.0f;
 
     boolean is_logging = true;
+    attribute<bool>  display_log_path{ this, "display_log_path", true };
+    attribute<symbol> note_name{ this, "note_name", "001" };
     int log_page_count = 0;
     int log_point_count = 0;
     string patch_path = min_devkit_path();
@@ -81,7 +82,7 @@ public:
     outlet<>    m_outlet_main{ this, "primary stuff: type phase x y modifiers" };
     outlet<>    m_outlet_pen{ this, "(float) pen pressure between 0. and 1." };
     outlet<>    m_outlet_index{ this, "int with index of the touch, not useful for mouse or pen" };
-    outlet<>    m_outlet_module{ this, "outputs from the module inference" };
+    outlet<>    m_outlet_rect{ this, "rect width and height of the loaded background" };
 
     nn_notepad(const atoms& args = {})
         : ui_operator::ui_operator{ this, args } {
@@ -90,7 +91,7 @@ public:
     timer<timer_options::defer_delivery> m_timer{ this,
         MIN_FUNCTION {
             
-            if (is_logging) {
+            if (is_logging && display_log_path) {
                 update_text();
 			}
 
@@ -132,6 +133,16 @@ public:
     }
 
     // the actual attribute for the message
+    //attribute<color>  m_background_fill{ this, "background_fill_colour", color{0.1,0.1,0.1,1.0}, description {
+    //        "Background fill"
+    //        "Colour of the background."
+    //    },
+    //    setter { MIN_FUNCTION{
+    //        //redraw();
+    //        return {args[0]};
+    //        }} 
+    //};
+
     attribute<symbol> canvas_background{ this, "canvas_background", "none",
         description {
             "Background image"
@@ -142,6 +153,7 @@ public:
                 m_image.clear_background();
             } else {
                 m_image.set_background(std::string(args[0]).c_str());
+                m_outlet_rect.send(m_image.get_width(), m_image.get_height());
             }
             redraw();
             return {args[0]};
@@ -179,7 +191,7 @@ public:
 				src_content += std::to_string(m_pages.size()) + "," + std::to_string(static_cast<int>(e.x())) + "," + std::to_string(static_cast<int>(e.y())) + "," + std::to_string(e.pen_pressure()).substr(0, 5) + "," + phase.c_str() + "\n";
 			}
 
-            atoms results = create_log_and_save(patch_path, src_content);
+            atoms results = create_log_and_save(std::to_string(note_name), patch_path, src_content);
             cout << "saved log to: " << results[0] << endl;
             m_image.write_and_lock(static_cast<string>(results[1])+".png", 150);
             return {};
@@ -373,13 +385,13 @@ public:
 
             rect<fill> {	// background
                 t,
-                color{ 0.2, 0.2, 0.2, 1.0 }
+                color{ 0.1,0.1,0.1,1.0 },
             };
 
             m_image.redraw(t.width(), t.height());
             m_image.draw(t, 0., 0., t.width(), t.height());
 
-            if (is_logging) {
+            if (is_logging && display_log_path) {
                 text{			// text display
                     t, ink_color.get(),
                     position {10.0, t.height() - m_fontsize * 0.5 - 3.0},

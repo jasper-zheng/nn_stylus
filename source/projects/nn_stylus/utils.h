@@ -8,8 +8,15 @@
 
 using namespace c74::min;
 
+number shiftX(const number x, const number r, const number theta) {
+    return x - std::sin(theta) * r;
+}
 
-atoms create_log_and_save(const std::string& base_path, const std::string& input) {
+number shiftY(const number y, const number r, const number theta) {
+	return y - std::cos(theta) * r;
+}
+
+atoms create_log_and_save(const std::string& save_name, const std::string& base_path, const std::string& input) {
 
     std::filesystem::create_directory(base_path + "/logs");
 
@@ -29,7 +36,7 @@ atoms create_log_and_save(const std::string& base_path, const std::string& input
         }
     }
     // Use the timestamp as the file name
-    string file_name = "log - " + timestamp_str;
+    string file_name = save_name + " drawing log - " + timestamp_str;
     string src_path_str = base_path + "/logs/" + file_name + ".txt";
 
     string src_content;
