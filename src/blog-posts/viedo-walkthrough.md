@@ -6,7 +6,7 @@ permalink: "{{ libdocConfig.blogSlug }}/walkthrough/index.html"
 tags:
     - post
 date: 2000-05-30
-ogImageUrl: "https://media.licdn.com/dms/image/sync/v2/D4D27AQGJICJf2gA3AQ/articleshare-shrink_800/B4DZ2lIiw9HIAI-/0/1776591973927?e=1781283600&v=beta&t=UXy15GWXijFMGiQYaoxTbOJmfIBIcLizsBW7sIU0sMI&quot"
+ogImageUrl: "../assets/open-graphic.jpg"
 author: Jasper Shuoyang Zheng
 tocEnabled: false
 ---
