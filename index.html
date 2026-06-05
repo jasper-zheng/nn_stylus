@@ -341,7 +341,7 @@
                                 <span ws-nowrap="sm,md">
                                     
                                     Last modified
-                                    2026-04-22
+                                    2026-06-05
                                 </span>
                             </p>
                         
@@ -372,7 +372,7 @@
             </noscript>
             <aside class="widget widget-alert">
 <div class="alert alert-warning" data-title="News">
-New MaxMSP externals updates: <a href="https://github.com/jasper-zheng/nn_terrain/releases/tag/v1.5.6.1-oct2025">v1.5.6.1-oct2025</a>, which added support for <a href="https://github.com/jasper-zheng/streamable-stable-audio-open">stable-audio-open-1.0 autoencoder</a>, example MaxMSP/Max4Live devices will be available soon.
+Added support for <a href="https://github.com/jasper-zheng/streamable-same-s">stable-audio-3 SAME autoencoder</a>, example MaxMSP/Max4Live devices will be available soon.
 </div>
 </aside>
 
@@ -381,9 +381,9 @@ New MaxMSP externals updates: <a href="https://github.com/jasper-zheng/nn_terrai
                                 <span class="icon-link-simple | pos-absolute top-50 left-50 t-tY-50 t-tX-50 | fs-4"></span>
                             </a>
                     Welcome</h2>
-<p>Latent terrain is a tool to build corpus-based sound spaces/maps/materials to steer neural audio autoencoders/codecs (such as <a href="https://github.com/acids-ircam/RAVE">RAVE</a>, <a href="https://github.com/jasper-zheng/streamable-stable-audio-open.git">Stable Audio Open (codec)</a>, <a href="https://github.com/SonyCSLParis/music2latent">Music2Latent</a>). A terrain is a surface map for the autoencoder's latent space, taking coordinates in a control space as inputs, and producing continuous real-time latent trajectories that can be used for sound synthesis.</p>
-<p>Latent terrain aims to open up the creative possibilities of <strong>latent space navigation</strong>, allowing one to adapt the latent space of an autoencoder to easy-to-navigate interfaces (such as gestural controllers, stylus and tablets, XY-pads, and more), explore it like walking on a terrain surface, and build new musical instruments that compose and interact with AI audio generators.</p>
-<p>An example <strong>latent space walk</strong> with Stable Audio Open 1.0:</p>
+<p>Neural audio codec (autoencoder) is a module used in many AI music generation systems. By unpacking a codec, one can directly interact with the sound generation process, and build tools that link to sensors, hardware, gestural controllers...</p>
+<p>Latent terrain is a tool to build corpus-based sound spaces/maps/materials to steer neural audio codecs (such as <a href="https://github.com/acids-ircam/RAVE">RAVE</a>, <a href="https://github.com/jasper-zheng/streamable-same-s">SAME used by Stable Audio 3</a>, <a href="https://github.com/SonyCSLParis/music2latent">Music2Latent</a>). A terrain is a surface map for the codec's latent space, taking coordinates in a control space as inputs, and producing continuous real-time latent vectors that can be used for sound synthesis.</p>
+<p>Latent terrain aims to open up the creative possibilities of <strong>latent space walk</strong>, allowing one to adapt the latent space of a codec to easy-to-navigate interfaces. An example latent space walk with Stable Audio Open 1.0:</p>
 <p><video controls="" loop="" playsinline="" aria-labelledby="video-label" src="assets/stableaudio-demo.mp4" width="70%"></video></p>
 
                         <h3 id="example-applications" pl-9="xs,sm">
@@ -397,21 +397,17 @@ New MaxMSP externals updates: <a href="https://github.com/jasper-zheng/nn_terrai
 <li>Latent looping device.</li>
 </ul>
 
-                        <h2 id="supported-autoencoders" pl-9="xs,sm">
-                            <a href="#supported-autoencoders" title="Supported autoencoders" class="pos-absolute top-50 left-0 t-tY-50 | p-4 ml-1 | td-none | brad-4 bc-neutral-100 bwidth-1 bstyle-dashed bcolor-neutral-500 __hover-1 __soft-shadow" ml-3="xs,sm">
+                        <h2 id="supported-codecs" pl-9="xs,sm">
+                            <a href="#supported-codecs" title="Supported codecs" class="pos-absolute top-50 left-0 t-tY-50 | p-4 ml-1 | td-none | brad-4 bc-neutral-100 bwidth-1 bstyle-dashed bcolor-neutral-500 __hover-1 __soft-shadow" ml-3="xs,sm">
                                 <span class="icon-link-simple | pos-absolute top-50 left-50 t-tY-50 t-tX-50 | fs-4"></span>
                             </a>
-                    Supported autoencoders</h2>
+                    Supported codecs</h2>
 <p>Latent terrain can work with any <a href="https://github.com/acids-ircam/creative_ml/blob/main/08_variational_ae_flows.pdf">audio autoencoder</a> as long as it offers latent variables. However, only a limited number of them have been implemented for MaxMSP, and we have only tested the following models:</p>
 <ul>
 <li><a href="https://github.com/acids-ircam/RAVE">RAVE</a> <br>Realtime Audio Variational autoEncoder for fast and high-quality neural audio synthesis, by Antoine Caillon and Philippe Esling.</li>
 <li><a href="https://github.com/jasper-zheng/music2latent-scripted">Music2Latent-Scripted</a> <br>Music2Latent is a Consistency Autoencoder to encode and decode audio samples, by Marco Pasini, Stefan Lattner, and George Fazekas. We're using a scripted fork of the original repository.</li>
-<li><a href="https://github.com/jasper-zheng/streamable-stable-audio-open.git">Stable Audio Open 1.0 (autoencoder)</a> <br><strong>[Only supported by nn.terrain oct-2025 version]</strong> The pretransform audoencoder in Stable Audio Open 1.0 (not the text-to-audio diffusion model, only the audoencoder).</li>
-</ul>
-<p>We plan to test the following model in the future:</p>
-<ul>
-<li><a href="https://github.com/facebookresearch/FlowDec">FlowDec</a></li>
-<li><a href="https://github.com/acids-ircam/vschaos2">vschaos2</a></li>
+<li><a href="https://github.com/jasper-zheng/streamable-stable-audio-open.git">Stable Audio Open 1.0 (autoencoder)</a> <br><strong>[Only supported by nn.terrain oct-2025 version]</strong> The pretransform audoencoder in Stable Audio Open 1.0 (not the latent diffusion model, only the audoencoder).</li>
+<li><a href="https://github.com/jasper-zheng/streamable-same-s">SAME-S (Semantically-Aligned Music Autoencoder)</a> <br><strong>[Only supported by nn.terrain oct-2025 version]</strong> The pretransform audoencoder in Stable Audio 3 (not the latent diffusion model, only the audoencoder).</li>
 </ul>
 
                         <h2 id="get-started" pl-9="xs,sm">
@@ -440,7 +436,7 @@ New MaxMSP externals updates: <a href="https://github.com/jasper-zheng/nn_terrai
                             </a>
                     How To Cite</h2>
 <p>If you use the software or the resources, we would appreciate citations to the following reference:</p>
-<p><em>Shuoyang Jasper Zheng, Keigo Yoshida, Nico García-Peguinho, Jiatong Liu, Dan Hearn, Anna Xambó Sedó, and Nick Bryan-Kinns</em>. 2026. <strong>Latent Terrain: Adapting Neural Audio Autoencoders as Design Materials in NIME</strong>. In Proceedings of the International Conference on New Interfaces for Musical Expression.</p>
+<p><em>Shuoyang Jasper Zheng, Keigo Yoshida, Nico García-Peguinho, Jiatong Liu, Dan Hearn, Anna Xambó Sedó, and Nick Bryan-Kinns</em>. 2026. <strong>Latent Terrain: Adapting Neural Audio Autoencoders as Design Materials in NIME</strong>. In Proceedings of the International Conference on New Interfaces for Musical Expression. <a href="https://qmro.qmul.ac.uk/xmlui/handle/123456789/128276">pdf</a></p>
 <pre><code>@inproceedings{zheng_latent_2026,
 	address = {London, UK},
 	title = {Latent Terrain: Adapting Neural Audio Autoencoders as Design Materials in NIME},
