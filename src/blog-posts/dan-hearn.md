@@ -17,9 +17,10 @@ tocEnabled: false
 {% iconCard 'Artist Bio', '**Dan Hearn** is a creative technologist and musician working with interaction, sound, and machine learning. His work centres on building tools and interfaces that invite exploration rather than automation. He works across software, hardware, and machine learning to develop prototypes, instruments, and installations.', 'user' %} 
 
 
-<!-- ### An ambient soundtrack -->
+### An ambient soundtrack  
 
-<!-- {{ 'https://www.youtube-nocookie.com/embed/A0bdwQGtKqQ?si=eRUN7HJjXjyyLjEs?controls=1' | embed }} -->
+<audio controls preload="metadata" src="../../assets/NIME-Dan.mp3"></audio>
+
 
 <br><br>
 
