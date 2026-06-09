@@ -364,7 +364,7 @@
                                 <span ws-nowrap="sm,md">
                                     
                                     Last modified
-                                    2026-06-05
+                                    2026-06-09
                                 </span>
                             </p>
                         
@@ -402,8 +402,8 @@
                     What we need</h2>
 <p>To build a terrain from scratch, we need a training dataset: pairs of <strong>latent trajectories</strong> and <strong>spatial trajectories</strong>.</p>
 <ul>
-<li><strong>Latent trajectories</strong> are sequences of latent vectors encoded from audio buffers.</li>
-<li><strong>Spatial trajectories</strong> are sequences of coordiantes in a control space. For instance:
+<li><strong>Latent trajectories</strong> are sequences of latent vectors encoded from audio buffers, by an autoencoder.</li>
+<li><strong>Spatial trajectories</strong> are sequences of coordinates in a control space. For instance:
 <ul>
 <li>Trajectory of mouse in an XY track pad</li>
 <li>Trajectory of hand gestures in an XYZ 3D space</li>
@@ -411,7 +411,7 @@
 </ul>
 </li>
 </ul>
-<p>A terrain is a <strong>supervised machine learning</strong> model that learns this coordiantes-to-latents pairs, to produce new latent vectors given any coordiantes in the control space, so that the control space can be rendered as a &quot;map&quot; for the latent space.</p>
+<p>A terrain is a <strong>supervised machine learning</strong> model that learns this coordinates-to-latents pairs, to produce new latent vectors given any coordinates in the control space, so that the control space can be rendered as a &quot;map&quot; for the latent space.</p>
 <figure>
     <picture class="eleventy-image"><source type="image/avif" srcset="/nn_terrain/instructions/build-terrain/latent-coord-pairs-vPsqcaaOo2-__730__.avif 730w, /nn_terrain/instructions/build-terrain/latent-coord-pairs-vPsqcaaOo2-__1400__.avif 1400w, /nn_terrain/instructions/build-terrain/latent-coord-pairs-vPsqcaaOo2-__2546__.avif 2546w" sizes="auto"><img loading="lazy" decoding="async" src="/nn_terrain/instructions/build-terrain/latent-coord-pairs-vPsqcaaOo2-__730__.webp" alt="Trajectories" width="2546" height="1586" srcset="/nn_terrain/instructions/build-terrain/latent-coord-pairs-vPsqcaaOo2-__730__.webp 730w, /nn_terrain/instructions/build-terrain/latent-coord-pairs-vPsqcaaOo2-__1400__.webp 1400w, /nn_terrain/instructions/build-terrain/latent-coord-pairs-vPsqcaaOo2-__2546__.webp 2546w" sizes="auto"></picture>
     <figcaption>
