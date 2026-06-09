@@ -19,13 +19,13 @@ An object `nn.terrain~ 2 4` creates an **empty** terrain with 2 control channels
 
 To build a terrain from scratch, we need a training dataset: pairs of **latent trajectories** and **spatial trajectories**.  
 
-* **Latent trajectories** are sequences of latent vectors encoded from audio buffers.
-* **Spatial trajectories** are sequences of coordiantes in a control space. For instance:
+* **Latent trajectories** are sequences of latent vectors encoded from audio buffers, by an autoencoder.
+* **Spatial trajectories** are sequences of coordinates in a control space. For instance:
   * Trajectory of mouse in an XY track pad
   * Trajectory of hand gestures in an XYZ 3D space
   * Timestamps in a timeline playback system
 
-A terrain is a **supervised machine learning** model that learns this coordiantes-to-latents pairs, to produce new latent vectors given any coordiantes in the control space, so that the control space can be rendered as a "map" for the latent space.
+A terrain is a **supervised machine learning** model that learns this coordinates-to-latents pairs, to produce new latent vectors given any coordinates in the control space, so that the control space can be rendered as a "map" for the latent space.
 
 
 <figure>
