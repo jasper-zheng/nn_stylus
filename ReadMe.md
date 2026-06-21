@@ -107,6 +107,22 @@ Hi, this is Shuoyang (Jasper). `nn.terrain~` is part of my ongoing PhD work on *
 
 Therefore, I would love to have you involved in it - if you have any feedback, a features request, a demo / a device / or anything made with nn.terrain, I would love to hear. If you would like to collaborate on anything, please leave a message in this [feedback form](https://forms.office.com/e/EJ4WHfru1A).  
 
+## How to cite
+
+If you use the software or the resources, we would appreciate citations to the following reference:
+
+Shuoyang Jasper Zheng, Keigo Yoshida, Nico García-Peguinho, Jiatong Liu, Dan Hearn, Anna Xambó Sedó, and Nick Bryan-Kinns. 2026. Latent Terrain: Adapting Neural Audio Autoencoders as Design Materials in NIME. In Proceedings of the International Conference on New Interfaces for Musical Expression.
+
+```
+@inproceedings{zheng_latent_2026,
+	address = {London, UK},
+	title = {Latent Terrain: Adapting Neural Audio Autoencoders as Design Materials in NIME},
+	booktitle = {Proceedings of the International Conference on New Interfaces for Musical Expression},
+	author = {Zheng, Shuoyang Jasper and Yoshida, Keigo and García-Peguinho, Nico and Liu, Jiatong and Hearn, Dan and Xambó Sedó, Anna and Bryan-Kinns, Nick},
+	year = {2026}
+}
+
+```
 
 ## Acknowledgements
 
