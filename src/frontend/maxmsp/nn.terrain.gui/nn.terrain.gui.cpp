@@ -6,9 +6,11 @@
 #include <stdio.h>
 #include <iostream>
 
-//#include <thread>
-//#include <semaphore>
-//#include <mutex>
+#include <thread>
+#include <semaphore>
+#include <mutex>
+#include <atomic>
+#include <array>
 
 #ifdef MAC_VERSION
 #include <ApplicationServices/ApplicationServices.h>
@@ -105,13 +107,23 @@ std::string min_devkit_path() {
 class stylus : public object<stylus>, public ui_operator<600, 150>, public vector_operator<> {
 private:
     
-//    bool m_use_thread{true}, m_should_stop_perform_thread{false};
-//    std::unique_ptr<std::thread> m_render_thread{nullptr};
-//    std::binary_semaphore m_should_render_lock{0};
-//    std::binary_semaphore m_finish_render_lock{0};
-    
-//    static void terrain_render_loop(stylus *st, target t);
-    
+    // TERRAIN PLOTTING WORKER (keeps the heavy canvas build off the message thread)
+    std::unique_ptr<std::thread> m_render_thread{nullptr};
+    bool m_should_stop_render_thread{false};
+    std::binary_semaphore m_should_render_lock{0}; // handler -> worker: work pending
+    std::binary_semaphore m_finish_render_lock{0}; // worker -> main: canvas ready
+    std::atomic<bool> m_render_pending{false};     // guards binary_semaphore over-release
+
+    std::mutex m_canvas_mutex;        // guards terrain_canvas / terrain_canvas_c / terrain_loaded
+    std::mutex m_render_input_mutex;  // guards the snapshot handed to the worker
+    std::vector<std::vector<float>> m_in_mono;
+    std::vector<std::array<std::vector<float>, 4>> m_in_color;
+    int m_in_mode{0};                 // 1: mono, 4: color
+    float m_in_cmin{0.0f}, m_in_cmax{0.0f};
+    color m_in_blo, m_in_bhi;
+
+    static void terrain_render_loop(stylus *st);
+
     float cursor_x = -21.0f;
     float cursor_y = -21.0f;
     float cursor_p = 0.0f;
@@ -316,6 +328,12 @@ public:
     bool out_of_zone_banged = false;
     bool out_of_zone = false;
     
+    message<> maxclass_setup{
+        this, "maxclass_setup", [this](const c74::min::atoms &args, const int inlet) -> c74::min::atoms {
+            cout << "nn.terrain.gui version: 1.5.6.2 Jul-2026" << endl;
+            return {};
+        }
+    };
     message<> dspsetup {this, "dspsetup",
         MIN_FUNCTION {
             ms_to_distance = samplerate()/m_in_ratio*0.001*traj_density;
@@ -505,62 +523,75 @@ public:
                     min_dict terrain_dict = {d_data};
                     int count = static_cast<int>(c74::max::dictionary_getentrycount(terrain_dict.m_instance));
                     if (count == 0) {
-                        terrain_loaded = 0;
+                        {
+                            std::unique_lock<std::mutex> lk(m_canvas_mutex);
+                            terrain_loaded = 0;
+                        }
                         if (keys){
                             c74::max::dictionary_freekeys(d.m_instance, numkeys, keys);
                         }
                         return {};
                     }
-                    
-                    float clamp_min = terrain_clamp[0];
-                    float clamp_max = terrain_clamp[1];
-                    
+
+                    // Extract the raw latent values on this (message) thread only, then
+                    // hand off to m_render_thread. The heavy scale()/colour math and the
+                    // terrain_canvas build run on the worker; the jgraphics redraw is
+                    // triggered by m_redraw_timer once the worker signals completion.
                     symbol skey{"0"};
+                    std::vector<std::vector<float>> in_mono;
+                    std::vector<std::array<std::vector<float>, 4>> in_color;
+                    int in_mode;
                     if (!c74::max::dictionary_entryisdictionary(terrain_dict.m_instance, skey)){
-                        terrain_canvas.clear();
+                        // mono terrain
+                        in_mode = 1;
+                        in_mono.resize(count);
                         for (int y = 0; y < count; y++){
-                            vector<float> canvas_line;
                             atoms latents = terrain_dict[y];
-                            for (int x = 0; x < latents.size(); x++){
-                                float value = static_cast<float>(latents[x]);
-                                canvas_line.push_back(scale(fmin(fmax(value, clamp_min), clamp_max), clamp_min, clamp_max, 0.0f, 1.0f));
+                            int latents_size = static_cast<int>(latents.size());
+                            in_mono[y].resize(latents_size);
+                            for (int x = 0; x < latents_size; x++){
+                                in_mono[y][x] = static_cast<float>(latents[x]);
                             }
-                            terrain_canvas.push_back(canvas_line);
                         }
-                        terrain_loaded = 1;
                     } else {
-                        terrain_canvas_c.clear();
+                        // color terrain (4 adjacent latent channels)
+                        in_mode = 4;
+                        in_color.resize(count);
                         for (int y = 0; y < count; y++){
-                            
-                            atom d_data = terrain_dict[y];
-                            min_dict line_dict = {d_data};
-                            
-                            int c_count = static_cast<int>(c74::max::dictionary_getentrycount(line_dict.m_instance));
-                            
+                            atom line_data = terrain_dict[y];
+                            min_dict line_dict = {line_data};
                             atoms latents_0 = line_dict[0];
                             atoms latents_1 = line_dict[1];
                             atoms latents_2 = line_dict[2];
                             atoms latents_3 = line_dict[3];
-                            
                             int latents_size = static_cast<int>(latents_0.size());
-                            
-                            std::vector<c74::max::t_jrgb> canvas_line;
-                            
-                            for (int x = 0; x < latents_size; x++){
-                                float brightness = scale(fmin(fmax(latents_0[x], clamp_min), clamp_max), clamp_min, clamp_max, static_cast<float>(b_rgb.get().alpha()), static_cast<float>(t_rgb.get().alpha()));
-                                float r = scale(fmin(fmax(latents_1[x], clamp_min), clamp_max), clamp_min, clamp_max, static_cast<float>(b_rgb.get().red()), static_cast<float>(t_rgb.get().red()));
-                                float g = scale(fmin(fmax(latents_2[x], clamp_min), clamp_max), clamp_min, clamp_max, static_cast<float>(b_rgb.get().green()), static_cast<float>(t_rgb.get().green()));
-                                float b = scale(fmin(fmax(latents_3[x], clamp_min), clamp_max), clamp_min, clamp_max, static_cast<float>(b_rgb.get().blue()), static_cast<float>(t_rgb.get().blue()));
-                                canvas_line.push_back(c74::max::t_jrgb{r*brightness, g*brightness, b*brightness});
+                            for (int c = 0; c < 4; c++){
+                                in_color[y][c].resize(latents_size);
                             }
-                            terrain_canvas_c.push_back(canvas_line);
+                            for (int x = 0; x < latents_size; x++){
+                                in_color[y][0][x] = static_cast<float>(latents_0[x]);
+                                in_color[y][1][x] = static_cast<float>(latents_1[x]);
+                                in_color[y][2][x] = static_cast<float>(latents_2[x]);
+                                in_color[y][3][x] = static_cast<float>(latents_3[x]);
+                            }
                         }
-                        terrain_loaded = 4;
                     }
-                    
-                    m_terrain.redraw(canvas_width, canvas_height);
-                    show_terrain = true;
-                    
+
+                    {
+                        std::unique_lock<std::mutex> lk(m_render_input_mutex);
+                        m_in_mode = in_mode;
+                        m_in_mono.swap(in_mono);
+                        m_in_color.swap(in_color);
+                        m_in_cmin = terrain_clamp[0];
+                        m_in_cmax = terrain_clamp[1];
+                        m_in_blo = b_rgb.get();
+                        m_in_bhi = t_rgb.get();
+                    }
+                    // signal the worker (guarded so we never over-release the semaphore)
+                    if (!m_render_pending.exchange(true)) {
+                        m_should_render_lock.release();
+                    }
+
                 } else if (key_str == "anchors"){
                     clear_trajs(m_task, m_mode);
                     auto& type_traj = m_task == tasks::play ? m_plays : m_mode == modes::points ? m_points : m_trajs;
@@ -1380,9 +1411,8 @@ public:
     }
     terrain m_terrain{ this, 600.0, 150.0, [this](const c74::min::atoms& args, const int inlet) -> c74::min::atoms{
         target t { args };
-//        m_render_thread = std::make_unique<std::thread>(terrain_render_loop, this, t);
-//        terrain_render_loop(this,t);
-//        m_should_render_lock.release();
+        // read the canvas the worker built; worker only holds this lock for an O(1) swap
+        std::unique_lock<std::mutex> canvas_lock(m_canvas_mutex);
         if (terrain_loaded==1){
             for (int i = 0; i < terrain_canvas.size(); i++) {
                 for (int j = 0; j < terrain_canvas[0].size(); j++) {
@@ -1698,11 +1728,13 @@ public:
     
     timer<timer_options::defer_delivery> m_redraw_timer { this,
         MIN_FUNCTION {
+            // when the worker has a fresh canvas, render it into the surface here on
+            // the main thread (jgraphics must not run off the main thread)
+            if (m_finish_render_lock.try_acquire()) {
+                m_terrain.redraw(canvas_width, canvas_height);
+                show_terrain = true;
+            }
             redraw();
-//            if(m_finish_render_lock.try_acquire()){
-//                cout << "thread completed" << endl;
-//                m_render_thread->join();
-//            }
             m_redraw_timer.delay(m_display_rate);
             return {};
         }
@@ -1791,7 +1823,8 @@ stylus::stylus(const atoms& args) : ui_operator::ui_operator {this, args} {
     playheads = std::make_unique<float[]>(2);
     playheads[0] = -32.0f;
     playheads[1] = -32.0f;
-    
+
+    m_render_thread = std::make_unique<std::thread>(terrain_render_loop, this);
 }
 
 stylus::~stylus() {
@@ -1845,12 +1878,88 @@ stylus::~stylus() {
     m_plays.clear();
     m_redraw_timer.stop();
     m_playhead_timer.stop();
-    
-//    if (m_render_thread){
-//        if (m_render_thread->joinable()){
-//            m_render_thread->join();
-//        }
-//    }
+
+    m_should_stop_render_thread = true;
+    if (m_render_thread && m_render_thread->joinable()){
+        m_render_thread->join();
+    }
+}
+
+void stylus::terrain_render_loop(stylus *st) {
+    using namespace std::chrono_literals;
+    while (!st->m_should_stop_render_thread) {
+        if (!st->m_should_render_lock.try_acquire_for(100ms)) {
+            continue;
+        }
+        // re-arm: a terrain arriving while we build below will re-signal us
+        st->m_render_pending.store(false);
+
+        // take the latest snapshot handed over by the dictionary handler
+        int mode;
+        std::vector<std::vector<float>> in_mono;
+        std::vector<std::array<std::vector<float>, 4>> in_color;
+        float cmin, cmax;
+        color blo, bhi;
+        {
+            std::unique_lock<std::mutex> lk(st->m_render_input_mutex);
+            mode = st->m_in_mode;
+            in_mono.swap(st->m_in_mono);
+            in_color.swap(st->m_in_color);
+            cmin = st->m_in_cmin;
+            cmax = st->m_in_cmax;
+            blo  = st->m_in_blo;
+            bhi  = st->m_in_bhi;
+        }
+
+        // heavy part: scale()/colour math + canvas build, into local temporaries
+        std::vector<std::vector<float>> tmp_mono;
+        std::vector<std::vector<c74::max::t_jrgb>> tmp_color;
+
+        if (mode == 1) {
+            tmp_mono.resize(in_mono.size());
+            for (size_t y = 0; y < in_mono.size(); y++) {
+                const auto& row = in_mono[y];
+                auto& out_row = tmp_mono[y];
+                out_row.resize(row.size());
+                for (size_t x = 0; x < row.size(); x++) {
+                    out_row[x] = scale<float>(fmin(fmax(row[x], cmin), cmax), cmin, cmax, 0.0f, 1.0f);
+                }
+            }
+        } else if (mode == 4) {
+            const float lo_a = static_cast<float>(blo.alpha()), hi_a = static_cast<float>(bhi.alpha());
+            const float lo_r = static_cast<float>(blo.red()),   hi_r = static_cast<float>(bhi.red());
+            const float lo_g = static_cast<float>(blo.green()), hi_g = static_cast<float>(bhi.green());
+            const float lo_b = static_cast<float>(blo.blue()),  hi_b = static_cast<float>(bhi.blue());
+            tmp_color.resize(in_color.size());
+            for (size_t y = 0; y < in_color.size(); y++) {
+                const auto& ch = in_color[y];
+                const size_t latents_size = ch[0].size();
+                auto& out_row = tmp_color[y];
+                out_row.resize(latents_size);
+                for (size_t x = 0; x < latents_size; x++) {
+                    float brightness = scale<float>(fmin(fmax(ch[0][x], cmin), cmax), cmin, cmax, lo_a, hi_a);
+                    float r = scale<float>(fmin(fmax(ch[1][x], cmin), cmax), cmin, cmax, lo_r, hi_r);
+                    float g = scale<float>(fmin(fmax(ch[2][x], cmin), cmax), cmin, cmax, lo_g, hi_g);
+                    float b = scale<float>(fmin(fmax(ch[3][x], cmin), cmax), cmin, cmax, lo_b, hi_b);
+                    out_row[x] = c74::max::t_jrgb{ r * brightness, g * brightness, b * brightness };
+                }
+            }
+        } else {
+            continue; // nothing valid to publish
+        }
+
+        // publish: O(1) swap under the canvas lock (read by the m_terrain draw lambda)
+        {
+            std::unique_lock<std::mutex> lk(st->m_canvas_mutex);
+            if (mode == 1) {
+                st->terrain_canvas.swap(tmp_mono);
+            } else {
+                st->terrain_canvas_c.swap(tmp_color);
+            }
+            st->terrain_loaded = mode;
+        }
+        st->m_finish_render_lock.release();
+    }
 }
 
 void stylus::clear_trajs(tasks t, modes m){

@@ -23,6 +23,8 @@ add_subdirectory(backend) # DEEP LEARNING BACKEND
 
 if(APPLE OR MSVC)
     add_subdirectory(frontend/maxmsp/nn.terrain_tilde) # MAX MSP EXTERNAL
+    add_subdirectory(frontend/maxmsp/mc.nn.terrain_tilde) # MAX MSP EXTERNAL (multichannel, batch on channels)
+    add_subdirectory(frontend/maxmsp/mcs.nn.terrain_tilde) # MAX MSP EXTERNAL (multichannel, batch on inlets)
     add_subdirectory(frontend/maxmsp/nn.terrain.encode) # MAX MSP EXTERNAL
     add_subdirectory(frontend/maxmsp/nn.terrain.record) # MAX MSP EXTERNAL
     add_subdirectory(frontend/maxmsp/nn.terrain.gui) # MAX MSP EXTERNAL

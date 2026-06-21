@@ -102,6 +102,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 )
 endif()
 
-if (MSVC)
-	set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
-endif()
+# This external uses C++20 features (e.g. std::binary_semaphore). min-posttarget
+# pins CXX_STANDARD to 17, so override it here for every platform (previously this
+# was MSVC-only, which broke macOS builds on newer toolchains).
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD_REQUIRED ON)

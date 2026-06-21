@@ -57,7 +57,7 @@ std::string min_devkit_path() {
 #endif    // WIN_VERSION
 
 #ifdef MAC_VERSION
-    CFBundleRef this_bundle = CFBundleGetBundleWithIdentifier(CFSTR("com.jasperzheng.nn-terrain-"));
+    CFBundleRef this_bundle = CFBundleGetBundleWithIdentifier(CFSTR("com.jasperzheng.mcs-nn-terrain-"));
     CFURLRef    this_url = CFBundleCopyExecutableURL(this_bundle);
     char        this_path[4096];
     CFURLGetFileSystemRepresentation(this_url, true, reinterpret_cast<UInt8*>(this_path), 4096);
@@ -66,13 +66,17 @@ std::string min_devkit_path() {
     // we now have a path like this:
     // /Users/tim/Materials/min-devkit/externals/min.project.mxo/Contents/MacOS/min.project"
     // so we need to chop off 5 slashes from the end
-    auto iter = this_path_str.find("/externals/nn.terrain~.mxo/Contents/MacOS/nn.terrain~");
-    this_path_str.erase(iter, strlen("/externals/nn.terrain~.mxo/Contents/MacOS/nn.terrain~"));
+    auto iter = this_path_str.find("/externals/mcs.nn.terrain~.mxo/Contents/MacOS/mcs.nn.terrain~");
+    this_path_str.erase(iter, strlen("/externals/mcs.nn.terrain~.mxo/Contents/MacOS/mcs.nn.terrain~"));
     return this_path_str;
 #endif    // MAC_VERSION
 }
 
-class nn_terrain : public object<nn_terrain>, public vector_operator<> {
+// Max multichannel negotiation callbacks (registered in maxclass_setup)
+long simplemc_multichanneloutputs(c74::max::t_object *x, long index, long count);
+long simplemc_inputchanged(c74::max::t_object *x, long index, long count);
+
+class mcs_nn_terrain : public object<mcs_nn_terrain>, public mc_operator<> {
     
 public:
     MIN_DESCRIPTION{"Latent terrain priors for neural audio autoencoders, for generating latent vectors"};
@@ -85,8 +89,8 @@ public:
     std::vector<std::unique_ptr<outlet<>>> m_outlets;
     std::vector<std::unique_ptr<inlet<>>> m_inlets;
 
-    nn_terrain(const atoms &args = {});
-    ~nn_terrain();
+    mcs_nn_terrain(const atoms &args = {});
+    ~mcs_nn_terrain();
     
     std::vector<std::unique_ptr<buffer_reference>> buffers;
     
@@ -106,8 +110,14 @@ public:
     int m_in_count{0};                                          // counts collected input samples until a full buffer
     std::unique_ptr<circular_buffer<float, double>[]> m_out_buffer;
     std::vector<std::unique_ptr<float[]>> m_latent_out;
-    std::vector<float> m_in_point;                              // preallocated control-point scratch (size m_in_dim)
-    std::vector<float*> m_latent_out_ptrs;                      // preallocated pointers into m_latent_out
+    std::vector<float> m_in_point;                              // flat control points, row-major [voice][m_in_dim]
+    std::vector<float> m_out_flat;                              // flat inference output, row-major [voice][m_out_dim]
+
+    // MULTICHANNEL (mcs): one inlet per voice, each carrying `m_in_dim` channels;
+    // one outlet per voice, each carrying `m_out_dim` channels. Voice count fixed by arg.
+    int m_voices{1};
+    int m_batch{1};
+    int get_batches() { return m_voices; }
 
     // AUDIO PERFORM
     bool m_use_thread{true}, m_should_stop_perform_thread{false};
@@ -120,11 +130,11 @@ public:
     bool load_param_from_file(string model_path, torch::serialize::InputArchive &archive);
     void operator()(audio_bundle input, audio_bundle output);
     void perform(audio_bundle input, audio_bundle output);
-    void cppn_infer(float *, std::vector<float *>);
+    void cppn_infer(float *, float *);
 //    atoms freeze_terrain(int width_x, int height_y, string terrain_name, int stride);
     
-    static void model_train_loop(nn_terrain *nn_instance);
-    static void model_plot_loop(nn_terrain *nn_instance);
+    static void model_train_loop(mcs_nn_terrain *nn_instance);
+    static void model_plot_loop(mcs_nn_terrain *nn_instance);
     
 //    at::Tensor sample_tensor;
     min_dict sampled_dict{symbol(true)};
@@ -144,6 +154,7 @@ public:
     bool time_to_refresh = false;
     
     
+    argument<int> voices_arg {this, "voices", "Number of voices (batches). Must be the FIRST argument.", true};
     argument<int> control_dim_arg {this, "control_dim", "Dimensionality of the input space.", true};
     argument<int> latent_dim_arg {this, "latent_dim", "Dimensionality of the autoencoder's latent space.", true};
     argument<float> t_gauss_scale_arg {this, "gauss_scale", "(Optional) Gaussian scale of the neural network. A float value between 0-1 is suggested, by default is 0.1. A higher Gaussian scale leads to a noisy terrain. If the Gaussian scale is 0, the Fourier feature mapping layer will be removed, will result in a smooth (low frequency) terrain."};
@@ -198,7 +209,13 @@ public:
     
     message<> maxclass_setup{
         this, "maxclass_setup", [this](const c74::min::atoms &args, const int inlet) -> c74::min::atoms {
-            cout << "nn.terrain~ version: 1.5.6.2 Jul-2026 - torch version: " << TORCH_VERSION << endl;
+            cout << "mcs.nn.terrain~ version: 1.5.6.2 Jul-2026 - torch version: " << TORCH_VERSION << endl;
+            // register multichannel handlers
+            c74::max::t_class *c = args[0];
+            c74::max::class_addmethod(c, (c74::max::method)simplemc_multichanneloutputs,
+                                      "multichanneloutputs", c74::max::A_CANT, 0);
+            c74::max::class_addmethod(c, (c74::max::method)simplemc_inputchanged,
+                                      "inputchanged", c74::max::A_CANT, 0);
             return {};
         }
     };
@@ -516,7 +533,7 @@ private:
     double m_one_over_samplerate    { 1.0 };
 };
 
-atoms nn_terrain::create_dataloader() {
+atoms mcs_nn_terrain::create_dataloader() {
     int coord_count = static_cast<int>(c74::max::dictionary_getentrycount(coord_dict.m_instance));
     int latent_count = static_cast<int>(c74::max::dictionary_getentrycount(latent_dict.m_instance));
     
@@ -640,7 +657,7 @@ atoms nn_terrain::create_dataloader() {
     }};
 }
 
-void nn_terrain::model_train_loop(nn_terrain *nn_instance) {
+void mcs_nn_terrain::model_train_loop(mcs_nn_terrain *nn_instance) {
   while (!nn_instance->m_should_stop_perform_thread) {
       if (nn_instance->m_should_train_lock.try_acquire_for(std::chrono::milliseconds(100))) {
           try {
@@ -654,7 +671,7 @@ void nn_terrain::model_train_loop(nn_terrain *nn_instance) {
       }
   }
 }
-void nn_terrain::model_plot_loop(nn_terrain *nn_instance) {
+void mcs_nn_terrain::model_plot_loop(mcs_nn_terrain *nn_instance) {
   while (!nn_instance->m_should_stop_perform_thread) {
       if (nn_instance->m_should_plot_lock.try_acquire_for(std::chrono::milliseconds(100))) {
           nn_instance->terrain_dict.clear();
@@ -712,7 +729,7 @@ void fill_with_zero(audio_bundle output) {
     }
 }
 
-void nn_terrain::operator()(audio_bundle input, audio_bundle output) {
+void mcs_nn_terrain::operator()(audio_bundle input, audio_bundle output) {
 //  CHECK IF MODEL IS LOADED AND ENABLED
     if (!cppn_init || !enable_cppn) {
         fill_with_zero(output);
@@ -721,7 +738,7 @@ void nn_terrain::operator()(audio_bundle input, audio_bundle output) {
     perform(input, output);
 }
 
-void nn_terrain::sample_interval(float x_lo, float x_hi, int x_res, float y_lo, float y_hi, int y_res, int c){
+void mcs_nn_terrain::sample_interval(float x_lo, float x_hi, int x_res, float y_lo, float y_hi, int y_res, int c){
     if (x_lo == x_lo_prev && x_hi == x_hi_prev && y_lo == y_lo_prev && y_hi == y_hi_prev && y_res == y_res_prev && x_res == x_res_prev && plot_resolution == plot_resolution_prev){
         // do nothing
     } else {
@@ -745,7 +762,7 @@ void nn_terrain::sample_interval(float x_lo, float x_hi, int x_res, float y_lo, 
     m_should_plot_lock.release();
 }
 
-void nn_terrain::create_sample_tensor(){
+void mcs_nn_terrain::create_sample_tensor(){
     vector<float> tensor_in_data;
     
     float x_stride = (x_hi_prev-x_lo_prev)/x_res_prev;
@@ -769,37 +786,44 @@ void nn_terrain::create_sample_tensor(){
 //    cout << "sampled tensor created: " << cppn_model->sample_tensor.sizes() << endl;
 }
 
-void nn_terrain::perform(audio_bundle input, audio_bundle output) {
+void mcs_nn_terrain::perform(audio_bundle input, audio_bundle output) {
     auto vec_size = input.frame_count();// 128
+    int batch = m_batch;
   // COUNT INPUT SAMPLES UNTIL A FULL BUFFER WORTH HAS BEEN COLLECTED
     m_in_count += static_cast<int>(vec_size);
 
     if (m_in_count >= m_buffer_size) { // BUFFER IS FULL // 2048
         m_in_count -= m_buffer_size;   // vec_size divides m_buffer_size, so this stays aligned
 
-        // sample one control point (first sample of the current block) per dimension
-        for (int c(0); c < m_in_dim && c < input.channel_count(); c++){
-            m_in_point[c] = static_cast<float>(*input.samples(c));
+        // (A) gather one control point per voice (first sample of the current block).
+        // inlet b occupies channels [b*m_in_dim .. b*m_in_dim + m_in_dim).
+        for (int b(0); b < batch; b++){
+            for (int d(0); d < m_in_dim; d++){
+                m_in_point[b * m_in_dim + d] = static_cast<float>(*input.samples(b * m_in_dim + d));
+            }
         }
 
-        cppn_infer(m_in_point.data(), m_latent_out_ptrs);
+        cppn_infer(m_in_point.data(), m_out_flat.data());
 
-        for (int c(0); c < m_out_dim; c++){
-            m_out_buffer[c].put(m_latent_out[c].get(), m_buffer_size);
+        // (B) scatter held latent values. output channel for (voice b, dim d) is b*m_out_dim + d,
+        // which matches the row-major order of m_out_flat exactly.
+        for (int i(0); i < batch * m_out_dim; i++){
+            float val = m_out_flat[i];
+            std::fill(m_latent_out[i].get(), m_latent_out[i].get() + m_buffer_size, val);
+            m_out_buffer[i].put(m_latent_out[i].get(), m_buffer_size);
         }
     }
 
-    // COPY CIRCULAR BUFFER TO OUTPUT
-    for (int c(0); c < output.channel_count(); c++) { // 8
+    // COPY CIRCULAR BUFFER TO OUTPUT (buffers are indexed by output audio channel)
+    for (int c(0); c < output.channel_count(); c++) {
         auto out = output.samples(c);
         if (enable_cppn){
             m_out_buffer[c].get(out, vec_size);
-//            memcpy(out, m_latent_out[c].get(), vec_size * sizeof(float));
         }
     }
 }
 
-void nn_terrain::cppn_infer(float* float_in, std::vector<float *> out_buffer){
+void mcs_nn_terrain::cppn_infer(float* float_in, float* out_flat){
     if (!cppn_init){
         return;
     }
@@ -815,13 +839,14 @@ void nn_terrain::cppn_infer(float* float_in, std::vector<float *> out_buffer){
 
     at::Tensor tensor_out;
     try {
-        at::Tensor tensor_in = torch::from_blob(float_in, {1, m_in_dim}, torch::kFloat)
+        // batched forward: {batch, m_in_dim} -> {batch, m_out_dim}
+        at::Tensor tensor_in = torch::from_blob(float_in, {m_batch, m_in_dim}, torch::kFloat)
                                    .to(cppn_model->m_device);
         tensor_out = cppn_model->m_model->forward(tensor_in);
         tensor_out = tensor_out.clamp_min({-100.0f}).clamp_max({100.0f});
         // each output channel is constant across the buffer, so only ship the
-        // m_out_dim scalars back to the host (cheap, GPU/MPS-friendly).
-        tensor_out = tensor_out.to(torch::kCPU).contiguous(); // -> {1, m_out_dim}
+        // batch * m_out_dim scalars back to the host (cheap, GPU/MPS-friendly).
+        tensor_out = tensor_out.to(torch::kCPU).contiguous(); // -> {batch, m_out_dim}
     } catch (const std::exception &e) {
         cout << e.what() << endl;
         return;
@@ -829,14 +854,12 @@ void nn_terrain::cppn_infer(float* float_in, std::vector<float *> out_buffer){
     model_lock.unlock();
 
     auto out_ptr = tensor_out.data_ptr<float>();
-    int n = std::min<int>(static_cast<int>(out_buffer.size()), m_out_dim);
-    for (int i(0); i < n; i++) {
-        std::fill(out_buffer[i], out_buffer[i] + m_buffer_size, out_ptr[i]);
-    }
+    int n = m_batch * m_out_dim;            // row-major [batch][m_out_dim]
+    std::copy(out_ptr, out_ptr + n, out_flat);
 }
 
 
-bool nn_terrain::load_param_from_file(string model_path, torch::serialize::InputArchive &archive) {
+bool mcs_nn_terrain::load_param_from_file(string model_path, torch::serialize::InputArchive &archive) {
     if (model_path.substr(model_path.length() - 3) != ".pt")
         model_path = model_path + ".pt";
     min_path m_path = min_path(model_path);
@@ -865,24 +888,43 @@ bool nn_terrain::load_param_from_file(string model_path, torch::serialize::Input
     return true;
 }
 
-nn_terrain::nn_terrain(const atoms &args){
+mcs_nn_terrain::mcs_nn_terrain(const atoms &args){
     
-    // arguments:
-    // (path)
-    // (in_dim, out_dim)
-    // (in_dim, out_dim, gauss_scale)
-    // (in_dim, out_dim, gauss_scale, c_max)
-    // (in_dim, out_dim, gauss_scale, c_max, buffer_size)
-    // (in_dim, out_dim, gauss_scale, c_max, mapping_size, buffer_size)
+    // arguments (voices is ALWAYS first for mcs):
+    // (voices, path)
+    // (voices, in_dim, out_dim)
+    // (voices, in_dim, out_dim, gauss_scale)
+    // (voices, in_dim, out_dim, gauss_scale, c_max)
+    // (voices, in_dim, out_dim, gauss_scale, c_max, mapping_size)
+    // (voices, in_dim, out_dim, gauss_scale, c_max, mapping_size, buffer_size)
     torch::serialize::InputArchive archive;
-    
+
     // CHECK ARGUMENTS
     if (!args.size()) {
         return;
     }
-    if (args.size() == 1) { // ONE ARGUMENT IS GIVEN
-        if (args[0].a_type == 3){
-            std::string model_path = std::string(args[0]);
+    // FIRST ARGUMENT = number of voices (batches)
+    if (args[0].a_type != 1) {
+        cerr << "first argument (voices) should be an integer" << endl;
+        return;
+    }
+    m_voices = int(args[0]);
+    if (m_voices < 1 || m_voices > 32) {
+        cerr << "voices should be a positive integer <= 32" << endl;
+        return;
+    }
+    m_batch = m_voices;
+
+    // remaining args follow the standard nn.terrain~ scheme
+    atoms rest(args.begin() + 1, args.end());
+
+    if (!rest.size()) {
+        // only voices given: no model spec -> object stays disabled (cppn_init = false)
+        return;
+    }
+    if (rest.size() == 1) { // ONE ARGUMENT IS GIVEN
+        if (rest[0].a_type == 3){
+            std::string model_path = std::string(rest[0]);
             if (!load_param_from_file(model_path, archive)) {
                 cerr << "error loading model from file: " << model_path << endl;
                 return;
@@ -892,11 +934,11 @@ nn_terrain::nn_terrain(const atoms &args){
             return;
         }
     }
-    if (args.size() >= 2) { // TWO ARGUMENTS ARE GIVEN
-        if (args[0].a_type == 1 && args[1].a_type == 1) {
-            if (int(args[0]) > 0 && int(args[1]) > 0 && int(args[0]) <= 6 && int(args[1]) <= 1024) {
-                m_in_dim = int(args[0]);
-                m_out_dim = int(args[1]);
+    if (rest.size() >= 2) { // TWO ARGUMENTS ARE GIVEN
+        if (rest[0].a_type == 1 && rest[1].a_type == 1) {
+            if (int(rest[0]) > 0 && int(rest[1]) > 0 && int(rest[0]) <= 6 && int(rest[1]) <= 1024) {
+                m_in_dim = int(rest[0]);
+                m_out_dim = int(rest[1]);
             } else {
                 cerr << "control_dim should be positive integers <= 6, latent_dim should be positive integers <= 1024" << endl;
                 return;
@@ -906,10 +948,10 @@ nn_terrain::nn_terrain(const atoms &args){
             return;
         }
     }
-    if (args.size() >= 3) { // THREE ARGUMENTS ARE GIVEN
-        if (args[2].a_type == 2) {
-            if (float(args[2]) >= 0 && float(args[2]) <= 10) {
-                m_gauss_scale = float(args[2]);
+    if (rest.size() >= 3) { // THREE ARGUMENTS ARE GIVEN
+        if (rest[2].a_type == 2) {
+            if (float(rest[2]) >= 0 && float(rest[2]) <= 10) {
+                m_gauss_scale = float(rest[2]);
             } else {
                 cerr << "third arg should be non-negative float <= 10" << endl;
                 return;
@@ -919,10 +961,10 @@ nn_terrain::nn_terrain(const atoms &args){
             return;
         }
     }
-    if (args.size() >= 4) { // Four ARGUMENTS ARE GIVEN
-        if (args[3].a_type == 1) {
-            if (int(args[3]) <= 1024) {
-                m_cmax = int(args[3]);
+    if (rest.size() >= 4) { // Four ARGUMENTS ARE GIVEN
+        if (rest[3].a_type == 1) {
+            if (int(rest[3]) <= 1024) {
+                m_cmax = int(rest[3]);
             } else {
                 cerr << "fourth arg should be positive integers <= 1024" << endl;
                 return;
@@ -932,10 +974,10 @@ nn_terrain::nn_terrain(const atoms &args){
             return;
         }
     }
-    if (args.size() >= 5) { // Five ARGUMENTS ARE GIVEN
-        if (args[4].a_type == 1) {
-            if (int(args[4]) <= 2048 && int(args[4]) >= 16) {
-                m_mapping_size = int(args[4]);
+    if (rest.size() >= 5) { // Five ARGUMENTS ARE GIVEN
+        if (rest[4].a_type == 1) {
+            if (int(rest[4]) <= 2048 && int(rest[4]) >= 16) {
+                m_mapping_size = int(rest[4]);
             } else {
                 cerr << "fifth arg should be positive integers between [16, 2048]" << endl;
                 return;
@@ -945,23 +987,23 @@ nn_terrain::nn_terrain(const atoms &args){
             return;
         }
     }
-    if (args.size() >= 6) {
-        m_buffer_size = power_ceil(int(args[5]));
+    if (rest.size() >= 6) {
+        m_buffer_size = power_ceil(int(rest[5]));
     }
-    if (args.size() >= 7) {
+    if (rest.size() >= 7) {
         cerr << "too many arguments" << endl;
         return;
     }
-    
+
     cppn_model = std::make_unique<FCPPN>();
-    
+
     if (!cppn_model->create(m_in_dim, m_out_dim, m_cmax, m_gauss_scale, m_mapping_size)) {
         cerr << "error during creating model" << endl;
         error();
         return;
     }
-    
-    if (args.size() == 1) { // if loading from a checkpoint
+
+    if (rest.size() == 1) { // if loading from a checkpoint
         try{
             cppn_model->m_model->load(archive);
         } catch (const std::exception& e) {
@@ -983,24 +1025,25 @@ nn_terrain::nn_terrain(const atoms &args){
 
   m_use_thread = false;
 
-  // CREATE INLETS, OUTLETS and BUFFERS
-  m_in_point.assign(m_in_dim, 0.0f);
-  for (int i(0); i < m_in_dim; i++) {
-    std::string input_label = "(signal) input from control space dimension: " + std::to_string(i);
-    m_inlets.push_back(std::make_unique<inlet<>>(this, input_label, "float"));
+  // CREATE INLETS, OUTLETS and BUFFERS (multichannel: batch is on the inlets)
+  m_batch = m_voices;
+  // one multichannelsignal inlet per voice; channels within = m_in_dim (control point)
+  for (int b(0); b < m_voices; b++) {
+    std::string input_label = "(multichannelsignal) voice " + std::to_string(b) + " control point (channels = control_dim)";
+    m_inlets.push_back(std::make_unique<inlet<>>(this, input_label, "multichannelsignal"));
   }
+  m_in_point.assign(m_batch * m_in_dim, 0.0f);
+  m_out_flat.assign(m_batch * m_out_dim, 0.0f);
 
-  m_out_buffer = std::make_unique<circular_buffer<float, double>[]>(m_out_dim);
-  for (int i(0); i < m_out_dim; i++) {
-      std::string output_label = "(signal) output at latent space dimension: " + std::to_string(i);
-      m_outlets.push_back(std::make_unique<outlet<>>(this, output_label, "signal"));
+  // one multichannelsignal outlet per voice; channels within = m_out_dim (latent vector)
+  for (int b(0); b < m_voices; b++) {
+      std::string output_label = "(multichannelsignal) voice " + std::to_string(b) + " latent (channels = latent_dim)";
+      m_outlets.push_back(std::make_unique<outlet<>>(this, output_label, "multichannelsignal"));
+  }
+  m_out_buffer = std::make_unique<circular_buffer<float, double>[]>(m_batch * m_out_dim);
+  for (int i(0); i < m_batch * m_out_dim; i++) {
       m_out_buffer[i].initialize(m_buffer_size);
       m_latent_out.push_back(std::make_unique<float[]>(m_buffer_size));
-  }
-  // build the (constant) pointer list once, so perform()/cppn_infer() allocate nothing
-  m_latent_out_ptrs.clear();
-  for (int i(0); i < m_out_dim; i++) {
-      m_latent_out_ptrs.push_back(m_latent_out[i].get());
   }
     m_outlets.push_back(std::make_unique<outlet<>>(this, "(dictionary) plotted interval", "dictionary"));
     m_outlets.push_back(std::make_unique<outlet<>>(this, "(message) logging information, route option: summary, dataset, dataset_length, epoch, loss", "message"));
@@ -1027,7 +1070,7 @@ nn_terrain::nn_terrain(const atoms &args){
 //    cout << "terrain setup finished" << endl;
 }
 
-nn_terrain::~nn_terrain() {
+mcs_nn_terrain::~mcs_nn_terrain() {
     
     terrain_dict.clear();
     latent_dict.clear();
@@ -1041,7 +1084,28 @@ nn_terrain::~nn_terrain() {
         m_compute_thread->join();
     }
     m_train_timer.stop();
-    
-    
+
+
 }
-MIN_EXTERNAL(nn_terrain);
+
+long simplemc_multichanneloutputs(c74::max::t_object *x, long index, long count) {
+    minwrap<mcs_nn_terrain> *ob = (minwrap<mcs_nn_terrain> *)(x);
+    // each signal outlet (one per voice) carries m_out_dim channels
+    return index < ob->m_min_object.m_voices ? ob->m_min_object.m_out_dim : 1;
+}
+
+long simplemc_inputchanged(c74::max::t_object *x, long index, long count) {
+    minwrap<mcs_nn_terrain> *ob = (minwrap<mcs_nn_terrain> *)(x);
+    auto chan_number = ob->m_min_object.m_in_dim;
+    // each voice inlet must carry exactly m_in_dim channels (batch is fixed)
+    if (chan_number != count) {
+        c74::max::object_error(
+            x, (std::string("invalid channel number for input ") +
+                std::to_string(index) + std::string("; should be ") +
+                std::to_string(chan_number))
+                   .c_str());
+    }
+    return false;
+}
+
+MIN_EXTERNAL(mcs_nn_terrain);

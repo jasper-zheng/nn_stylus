@@ -57,7 +57,7 @@ std::string min_devkit_path() {
 #endif    // WIN_VERSION
 
 #ifdef MAC_VERSION
-    CFBundleRef this_bundle = CFBundleGetBundleWithIdentifier(CFSTR("com.jasperzheng.nn-terrain-"));
+    CFBundleRef this_bundle = CFBundleGetBundleWithIdentifier(CFSTR("com.jasperzheng.mc-nn-terrain-"));
     CFURLRef    this_url = CFBundleCopyExecutableURL(this_bundle);
     char        this_path[4096];
     CFURLGetFileSystemRepresentation(this_url, true, reinterpret_cast<UInt8*>(this_path), 4096);
@@ -66,13 +66,17 @@ std::string min_devkit_path() {
     // we now have a path like this:
     // /Users/tim/Materials/min-devkit/externals/min.project.mxo/Contents/MacOS/min.project"
     // so we need to chop off 5 slashes from the end
-    auto iter = this_path_str.find("/externals/nn.terrain~.mxo/Contents/MacOS/nn.terrain~");
-    this_path_str.erase(iter, strlen("/externals/nn.terrain~.mxo/Contents/MacOS/nn.terrain~"));
+    auto iter = this_path_str.find("/externals/mc.nn.terrain~.mxo/Contents/MacOS/mc.nn.terrain~");
+    this_path_str.erase(iter, strlen("/externals/mc.nn.terrain~.mxo/Contents/MacOS/mc.nn.terrain~"));
     return this_path_str;
 #endif    // MAC_VERSION
 }
 
-class nn_terrain : public object<nn_terrain>, public vector_operator<> {
+// Max multichannel negotiation callbacks (registered in maxclass_setup)
+long simplemc_multichanneloutputs(c74::max::t_object *x, long index, long count);
+long simplemc_inputchanged(c74::max::t_object *x, long index, long count);
+
+class mc_nn_terrain : public object<mc_nn_terrain>, public mc_operator<> {
     
 public:
     MIN_DESCRIPTION{"Latent terrain priors for neural audio autoencoders, for generating latent vectors"};
@@ -85,8 +89,8 @@ public:
     std::vector<std::unique_ptr<outlet<>>> m_outlets;
     std::vector<std::unique_ptr<inlet<>>> m_inlets;
 
-    nn_terrain(const atoms &args = {});
-    ~nn_terrain();
+    mc_nn_terrain(const atoms &args = {});
+    ~mc_nn_terrain();
     
     std::vector<std::unique_ptr<buffer_reference>> buffers;
     
@@ -106,8 +110,15 @@ public:
     int m_in_count{0};                                          // counts collected input samples until a full buffer
     std::unique_ptr<circular_buffer<float, double>[]> m_out_buffer;
     std::vector<std::unique_ptr<float[]>> m_latent_out;
-    std::vector<float> m_in_point;                              // preallocated control-point scratch (size m_in_dim)
-    std::vector<float*> m_latent_out_ptrs;                      // preallocated pointers into m_latent_out
+    std::vector<float> m_in_point;                              // flat control points, row-major [batch][m_in_dim]
+    std::vector<float> m_out_flat;                              // flat inference output, row-major [batch][m_out_dim]
+
+    // MULTICHANNEL (mc): one inlet per control dim, each carrying `batch` channels.
+    // batch = min channel count across the inlets (dynamic, updated by inputchanged).
+    int m_batch{1};
+    std::vector<int> chans;                                     // channel count per input inlet
+    int get_batches() { return chans.empty() ? 1 : *std::min_element(chans.begin(), chans.end()); }
+    void reset_buffers();
 
     // AUDIO PERFORM
     bool m_use_thread{true}, m_should_stop_perform_thread{false};
@@ -120,11 +131,11 @@ public:
     bool load_param_from_file(string model_path, torch::serialize::InputArchive &archive);
     void operator()(audio_bundle input, audio_bundle output);
     void perform(audio_bundle input, audio_bundle output);
-    void cppn_infer(float *, std::vector<float *>);
+    void cppn_infer(float *, float *);
 //    atoms freeze_terrain(int width_x, int height_y, string terrain_name, int stride);
     
-    static void model_train_loop(nn_terrain *nn_instance);
-    static void model_plot_loop(nn_terrain *nn_instance);
+    static void model_train_loop(mc_nn_terrain *nn_instance);
+    static void model_plot_loop(mc_nn_terrain *nn_instance);
     
 //    at::Tensor sample_tensor;
     min_dict sampled_dict{symbol(true)};
@@ -198,7 +209,13 @@ public:
     
     message<> maxclass_setup{
         this, "maxclass_setup", [this](const c74::min::atoms &args, const int inlet) -> c74::min::atoms {
-            cout << "nn.terrain~ version: 1.5.6.2 Jul-2026 - torch version: " << TORCH_VERSION << endl;
+            cout << "mc.nn.terrain~ version: 1.5.6.2 Jul-2026 - torch version: " << TORCH_VERSION << endl;
+            // register multichannel handlers
+            c74::max::t_class *c = args[0];
+            c74::max::class_addmethod(c, (c74::max::method)simplemc_multichanneloutputs,
+                                      "multichanneloutputs", c74::max::A_CANT, 0);
+            c74::max::class_addmethod(c, (c74::max::method)simplemc_inputchanged,
+                                      "inputchanged", c74::max::A_CANT, 0);
             return {};
         }
     };
@@ -516,7 +533,7 @@ private:
     double m_one_over_samplerate    { 1.0 };
 };
 
-atoms nn_terrain::create_dataloader() {
+atoms mc_nn_terrain::create_dataloader() {
     int coord_count = static_cast<int>(c74::max::dictionary_getentrycount(coord_dict.m_instance));
     int latent_count = static_cast<int>(c74::max::dictionary_getentrycount(latent_dict.m_instance));
     
@@ -640,7 +657,7 @@ atoms nn_terrain::create_dataloader() {
     }};
 }
 
-void nn_terrain::model_train_loop(nn_terrain *nn_instance) {
+void mc_nn_terrain::model_train_loop(mc_nn_terrain *nn_instance) {
   while (!nn_instance->m_should_stop_perform_thread) {
       if (nn_instance->m_should_train_lock.try_acquire_for(std::chrono::milliseconds(100))) {
           try {
@@ -654,7 +671,7 @@ void nn_terrain::model_train_loop(nn_terrain *nn_instance) {
       }
   }
 }
-void nn_terrain::model_plot_loop(nn_terrain *nn_instance) {
+void mc_nn_terrain::model_plot_loop(mc_nn_terrain *nn_instance) {
   while (!nn_instance->m_should_stop_perform_thread) {
       if (nn_instance->m_should_plot_lock.try_acquire_for(std::chrono::milliseconds(100))) {
           nn_instance->terrain_dict.clear();
@@ -712,7 +729,7 @@ void fill_with_zero(audio_bundle output) {
     }
 }
 
-void nn_terrain::operator()(audio_bundle input, audio_bundle output) {
+void mc_nn_terrain::operator()(audio_bundle input, audio_bundle output) {
 //  CHECK IF MODEL IS LOADED AND ENABLED
     if (!cppn_init || !enable_cppn) {
         fill_with_zero(output);
@@ -721,7 +738,7 @@ void nn_terrain::operator()(audio_bundle input, audio_bundle output) {
     perform(input, output);
 }
 
-void nn_terrain::sample_interval(float x_lo, float x_hi, int x_res, float y_lo, float y_hi, int y_res, int c){
+void mc_nn_terrain::sample_interval(float x_lo, float x_hi, int x_res, float y_lo, float y_hi, int y_res, int c){
     if (x_lo == x_lo_prev && x_hi == x_hi_prev && y_lo == y_lo_prev && y_hi == y_hi_prev && y_res == y_res_prev && x_res == x_res_prev && plot_resolution == plot_resolution_prev){
         // do nothing
     } else {
@@ -745,7 +762,7 @@ void nn_terrain::sample_interval(float x_lo, float x_hi, int x_res, float y_lo, 
     m_should_plot_lock.release();
 }
 
-void nn_terrain::create_sample_tensor(){
+void mc_nn_terrain::create_sample_tensor(){
     vector<float> tensor_in_data;
     
     float x_stride = (x_hi_prev-x_lo_prev)/x_res_prev;
@@ -769,37 +786,49 @@ void nn_terrain::create_sample_tensor(){
 //    cout << "sampled tensor created: " << cppn_model->sample_tensor.sizes() << endl;
 }
 
-void nn_terrain::perform(audio_bundle input, audio_bundle output) {
+void mc_nn_terrain::perform(audio_bundle input, audio_bundle output) {
     auto vec_size = input.frame_count();// 128
+    int batch = m_batch;
   // COUNT INPUT SAMPLES UNTIL A FULL BUFFER WORTH HAS BEEN COLLECTED
     m_in_count += static_cast<int>(vec_size);
 
     if (m_in_count >= m_buffer_size) { // BUFFER IS FULL // 2048
         m_in_count -= m_buffer_size;   // vec_size divides m_buffer_size, so this stays aligned
 
-        // sample one control point (first sample of the current block) per dimension
-        for (int c(0); c < m_in_dim && c < input.channel_count(); c++){
-            m_in_point[c] = static_cast<float>(*input.samples(c));
+        // (A) gather one control point per batch (first sample of the current block).
+        // inlet d occupies `chans[d]` channels; batch b is its b-th channel.
+        int dim_offset = 0;
+        for (int d(0); d < m_in_dim; d++){
+            for (int b(0); b < batch; b++){
+                m_in_point[b * m_in_dim + d] = static_cast<float>(*input.samples(dim_offset + b));
+            }
+            dim_offset += chans[d];
         }
 
-        cppn_infer(m_in_point.data(), m_latent_out_ptrs);
+        cppn_infer(m_in_point.data(), m_out_flat.data());
 
-        for (int c(0); c < m_out_dim; c++){
-            m_out_buffer[c].put(m_latent_out[c].get(), m_buffer_size);
+        // (B) scatter held latent values. output channel for (dim d, batch b) is d*batch + b;
+        // inference result for that pair is m_out_flat[b*m_out_dim + d].
+        for (int d(0); d < m_out_dim; d++){
+            for (int b(0); b < batch; b++){
+                int ch = d * batch + b;
+                float val = m_out_flat[b * m_out_dim + d];
+                std::fill(m_latent_out[ch].get(), m_latent_out[ch].get() + m_buffer_size, val);
+                m_out_buffer[ch].put(m_latent_out[ch].get(), m_buffer_size);
+            }
         }
     }
 
-    // COPY CIRCULAR BUFFER TO OUTPUT
-    for (int c(0); c < output.channel_count(); c++) { // 8
+    // COPY CIRCULAR BUFFER TO OUTPUT (buffers are indexed by output audio channel)
+    for (int c(0); c < output.channel_count(); c++) {
         auto out = output.samples(c);
         if (enable_cppn){
             m_out_buffer[c].get(out, vec_size);
-//            memcpy(out, m_latent_out[c].get(), vec_size * sizeof(float));
         }
     }
 }
 
-void nn_terrain::cppn_infer(float* float_in, std::vector<float *> out_buffer){
+void mc_nn_terrain::cppn_infer(float* float_in, float* out_flat){
     if (!cppn_init){
         return;
     }
@@ -815,13 +844,14 @@ void nn_terrain::cppn_infer(float* float_in, std::vector<float *> out_buffer){
 
     at::Tensor tensor_out;
     try {
-        at::Tensor tensor_in = torch::from_blob(float_in, {1, m_in_dim}, torch::kFloat)
+        // batched forward: {batch, m_in_dim} -> {batch, m_out_dim}
+        at::Tensor tensor_in = torch::from_blob(float_in, {m_batch, m_in_dim}, torch::kFloat)
                                    .to(cppn_model->m_device);
         tensor_out = cppn_model->m_model->forward(tensor_in);
         tensor_out = tensor_out.clamp_min({-100.0f}).clamp_max({100.0f});
         // each output channel is constant across the buffer, so only ship the
-        // m_out_dim scalars back to the host (cheap, GPU/MPS-friendly).
-        tensor_out = tensor_out.to(torch::kCPU).contiguous(); // -> {1, m_out_dim}
+        // batch * m_out_dim scalars back to the host (cheap, GPU/MPS-friendly).
+        tensor_out = tensor_out.to(torch::kCPU).contiguous(); // -> {batch, m_out_dim}
     } catch (const std::exception &e) {
         cout << e.what() << endl;
         return;
@@ -829,14 +859,12 @@ void nn_terrain::cppn_infer(float* float_in, std::vector<float *> out_buffer){
     model_lock.unlock();
 
     auto out_ptr = tensor_out.data_ptr<float>();
-    int n = std::min<int>(static_cast<int>(out_buffer.size()), m_out_dim);
-    for (int i(0); i < n; i++) {
-        std::fill(out_buffer[i], out_buffer[i] + m_buffer_size, out_ptr[i]);
-    }
+    int n = m_batch * m_out_dim;            // row-major [batch][m_out_dim]
+    std::copy(out_ptr, out_ptr + n, out_flat);
 }
 
 
-bool nn_terrain::load_param_from_file(string model_path, torch::serialize::InputArchive &archive) {
+bool mc_nn_terrain::load_param_from_file(string model_path, torch::serialize::InputArchive &archive) {
     if (model_path.substr(model_path.length() - 3) != ".pt")
         model_path = model_path + ".pt";
     min_path m_path = min_path(model_path);
@@ -865,7 +893,7 @@ bool nn_terrain::load_param_from_file(string model_path, torch::serialize::Input
     return true;
 }
 
-nn_terrain::nn_terrain(const atoms &args){
+mc_nn_terrain::mc_nn_terrain(const atoms &args){
     
     // arguments:
     // (path)
@@ -983,24 +1011,27 @@ nn_terrain::nn_terrain(const atoms &args){
 
   m_use_thread = false;
 
-  // CREATE INLETS, OUTLETS and BUFFERS
-  m_in_point.assign(m_in_dim, 0.0f);
+  // CREATE INLETS, OUTLETS and BUFFERS (multichannel: batch = channel count)
+  // one multichannelsignal inlet per control dimension; channels within = batch
+  m_batch = 1;
+  chans.clear();
   for (int i(0); i < m_in_dim; i++) {
-    std::string input_label = "(signal) input from control space dimension: " + std::to_string(i);
-    m_inlets.push_back(std::make_unique<inlet<>>(this, input_label, "float"));
+    std::string input_label = "(multichannelsignal) control dimension " + std::to_string(i) + " (channels = batch)";
+    m_inlets.push_back(std::make_unique<inlet<>>(this, input_label, "multichannelsignal"));
+    chans.push_back(1);
   }
+  m_in_point.assign(m_batch * m_in_dim, 0.0f);
+  m_out_flat.assign(m_batch * m_out_dim, 0.0f);
 
-  m_out_buffer = std::make_unique<circular_buffer<float, double>[]>(m_out_dim);
+  // one multichannelsignal outlet per latent dimension; channels within = batch
   for (int i(0); i < m_out_dim; i++) {
-      std::string output_label = "(signal) output at latent space dimension: " + std::to_string(i);
-      m_outlets.push_back(std::make_unique<outlet<>>(this, output_label, "signal"));
+      std::string output_label = "(multichannelsignal) latent dimension " + std::to_string(i) + " (channels = batch)";
+      m_outlets.push_back(std::make_unique<outlet<>>(this, output_label, "multichannelsignal"));
+  }
+  m_out_buffer = std::make_unique<circular_buffer<float, double>[]>(m_batch * m_out_dim);
+  for (int i(0); i < m_batch * m_out_dim; i++) {
       m_out_buffer[i].initialize(m_buffer_size);
       m_latent_out.push_back(std::make_unique<float[]>(m_buffer_size));
-  }
-  // build the (constant) pointer list once, so perform()/cppn_infer() allocate nothing
-  m_latent_out_ptrs.clear();
-  for (int i(0); i < m_out_dim; i++) {
-      m_latent_out_ptrs.push_back(m_latent_out[i].get());
   }
     m_outlets.push_back(std::make_unique<outlet<>>(this, "(dictionary) plotted interval", "dictionary"));
     m_outlets.push_back(std::make_unique<outlet<>>(this, "(message) logging information, route option: summary, dataset, dataset_length, epoch, loss", "message"));
@@ -1027,7 +1058,7 @@ nn_terrain::nn_terrain(const atoms &args){
 //    cout << "terrain setup finished" << endl;
 }
 
-nn_terrain::~nn_terrain() {
+mc_nn_terrain::~mc_nn_terrain() {
     
     terrain_dict.clear();
     latent_dict.clear();
@@ -1041,7 +1072,44 @@ nn_terrain::~nn_terrain() {
         m_compute_thread->join();
     }
     m_train_timer.stop();
-    
-    
+
+
 }
-MIN_EXTERNAL(nn_terrain);
+
+// Reallocate the output buffers / scratch when the batch (channel) count changes.
+void mc_nn_terrain::reset_buffers() {
+    m_batch = get_batches();
+    int total_out = m_batch * m_out_dim;
+    m_out_buffer = std::make_unique<circular_buffer<float, double>[]>(total_out);
+    m_latent_out.clear();
+    for (int i(0); i < total_out; i++) {
+        m_out_buffer[i].initialize(m_buffer_size);
+        m_latent_out.push_back(std::make_unique<float[]>(m_buffer_size));
+    }
+    m_in_point.assign(m_batch * m_in_dim, 0.0f);
+    m_out_flat.assign(total_out, 0.0f);
+}
+
+long simplemc_multichanneloutputs(c74::max::t_object *x, long index, long count) {
+    minwrap<mc_nn_terrain> *ob = (minwrap<mc_nn_terrain> *)(x);
+    // signal outlets (latent dims) come first; the dictionary/message outlets are not queried
+    return index < ob->m_min_object.m_out_dim ? ob->m_min_object.get_batches() : 1;
+}
+
+long simplemc_inputchanged(c74::max::t_object *x, long index, long count) {
+    minwrap<mc_nn_terrain> *ob = (minwrap<mc_nn_terrain> *)(x);
+    bool needs_refresh = false;
+    if (index >= 0 && index < (long)ob->m_min_object.chans.size() &&
+        ob->m_min_object.chans[index] != count) {
+        auto old_n_batch = ob->m_min_object.get_batches();
+        ob->m_min_object.chans[index] = count;
+        auto new_n_batch = ob->m_min_object.get_batches();
+        if (old_n_batch != new_n_batch) {
+            ob->m_min_object.reset_buffers();
+        }
+        needs_refresh = true;
+    }
+    return needs_refresh;
+}
+
+MIN_EXTERNAL(mc_nn_terrain);

@@ -459,30 +459,35 @@ void FCPPN::init_optimizer(float lr) {
 }
 
 float FCPPN::train_for(int epoch){
-    std::unique_lock<std::mutex> model_lock(m_model_mutex);
-    m_model->train();
     size_t batch_count = 0;
     float loss_log = 0.0;
     for (int i(0); i < epoch; i++){
         for (auto& batch : *data_loader) {
-            optimizer->zero_grad();
-            torch::Tensor batch_data = batch.data.to(m_device);
-            torch::Tensor prediction = m_model->forward(batch_data);
-            
-            torch::Tensor batch_target = batch.target.to(m_device);
-            
-            torch::Tensor loss = torch::mse_loss(prediction, batch_target).to(m_device);
-            loss.backward();
-            
-            optimizer->step();
-            
+            // Lock per batch (not per cycle) so the audio thread's try_lock in
+            // cppn_infer keeps succeeding and the live latent updates during
+            // training. PReLU/Linear-only net => train()/eval() forward are
+            // identical, so an interleaved audio read between batches is safe.
+            torch::Tensor loss;
+            {
+                std::unique_lock<std::mutex> model_lock(m_model_mutex);
+                m_model->train();
+                optimizer->zero_grad();
+                torch::Tensor batch_data = batch.data.to(m_device);
+                torch::Tensor prediction = m_model->forward(batch_data);
+
+                torch::Tensor batch_target = batch.target.to(m_device);
+
+                loss = torch::mse_loss(prediction, batch_target);
+                loss.backward();
+
+                optimizer->step();
+                m_model->eval();
+            }
+            // sync the scalar loss outside the lock to avoid stalling inference
             loss_log += loss.to(torch::kCPU).item<float>();
-            
             batch_count++;
         }
     }
-    m_model->eval();
-    model_lock.unlock();
     if (batch_count == 0){
         throw std::runtime_error("no batches were found for training");
     }

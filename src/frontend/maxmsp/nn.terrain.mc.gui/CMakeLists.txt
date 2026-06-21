@@ -51,6 +51,10 @@ endif()
 
 include(${C74_MIN_API_DIR}/script/min-posttarget.cmake)
 
+# Override min-posttarget's C++17 pin so newer toolchains accept C++20 features.
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
+
 
 #############################################################
 # UNIT TEST

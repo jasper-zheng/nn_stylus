@@ -36,7 +36,8 @@ find_package(Torch REQUIRED)
 
 set(
 SOURCE_FILES
-	nn.terrain.encode.cpp
+	mc.nn.terrain_tilde.cpp
+    	"../shared/circular_buffer.h"
 	"../shared/utils.h"
 	"../shared/min_path.h"
 	"../shared/min_dictionary.h"
@@ -57,6 +58,7 @@ add_library(
 	${PROJECT_NAME} 
 	MODULE
 	${SOURCE_FILES}
+    	"../shared/circular_buffer.h"
 	"../shared/utils.h"
 	"../shared/min_path.h"
 	"../shared/min_dictionary.h"
@@ -64,12 +66,14 @@ add_library(
 target_link_libraries(${PROJECT_NAME} PRIVATE backend)
 
 if (APPLE)
-set_target_properties(${PROJECT_NAME} PROPERTIES
-BUILD_WITH_INSTALL_RPATH FALSE
-LINK_FLAGS "-Wl,-rpath,@loader_path/"
-)
-set(AUTHOR_DOMAIN "com.jasperzheng")
-set(BUNDLE_IDENTIFIER "nn-terrain-encode")
+	target_link_libraries(${PROJECT_NAME} PUBLIC "$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>")
+	set_target_properties(${PROJECT_NAME} PROPERTIES
+	BUILD_WITH_INSTALL_RPATH FALSE
+	LINK_FLAGS "-Wl,-rpath,@loader_path/"
+	)
+	# I can't figure out how to set the Bundle Identifier nicely in for max-sdk-base, so I'm just gonna do this thing here...
+	set(AUTHOR_DOMAIN "com.jasperzheng")
+	set(BUNDLE_IDENTIFIER "mc-nn-terrain-")
 endif()
 
 include(${C74_MIN_API_DIR}/script/min-posttarget.cmake)
@@ -98,7 +102,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 )
 endif()
 
-# This external relies on C++20 (min-posttarget pins it to 17). Override for every
-# platform so newer toolchains don't reject C++20 features (was MSVC-only before).
+# This external uses C++20 features (e.g. std::binary_semaphore). min-posttarget
+# pins CXX_STANDARD to 17, so override it here for every platform (previously this
+# was MSVC-only, which broke macOS builds on newer toolchains).
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
